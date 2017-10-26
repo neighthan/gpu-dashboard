@@ -3,7 +3,7 @@ import re
 import os
 import sys
 from collections import namedtuple
-from time import sleep
+from time import time, sleep
 import signal
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
@@ -35,10 +35,10 @@ def cleanup(*args) -> None:
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description="expected format of the job file is (tab-delimited):\n"
-                                        "mem_free_threshold\tutil_free_threshold\tcommand_to_run\n"
+    parser = ArgumentParser(description="expected format of the job file is (pipe-delimited):\n"
+                                        "mem_free_threshold|util_free_threshold|command_to_run\n"
                                         "command_to_run should have {} where the device number should be inserted. Ex:\n"
-                                        "4000\t30\tpython my_script.py -flag --other=7 --device={}\n"
+                                        "4000|30|python my_script.py -flag --other=7 --device={}\n"
                                         "This will execute the command above once there's a gpu with 4 GB free and that "
                                         "has at least 30% utilization free. {} will be replaced with the number of the "
                                         "gpu which the job should use' &' will be added to the commands so that they run "
@@ -52,23 +52,28 @@ if __name__ == '__main__':
     parser.add_argument('-st', '--sleep_time', help="How long, in seconds, to sleep between trying to start jobs when either "
                                                    "the gpus are full, no jobs exist, or we're waiting to acquire the lock. "
                                                    "[default = 60]", type=float, default=60)
+    parser.add_argument('-kt', '--keep_time', help="How long, in seconds, to wait for a process to show up on the GPUs "
+                                                   "before assuming that it crashed (and letting the resources reserved "
+                                                   "for it be used by other processes). [default = 120]", type=float, default=120)
     parser.add_argument('-ls', '--lock_suffix', help="Suffix that this script will use to tell that the lock on the file "
                                                      "belongs to it. This shouldn't be used by any other script. "
                                                      "[default = runner]", default='runner')
-    parser.add_argument('-v', '--verbose', help='Whether to print information while running.', action='store_true')
+    parser.add_argument('-v', '--verbose', help='How much information to print while running. 0 for none, 1 for some, '
+                                                '2 for even more. [default = 0]', type=int, default=0)
 
     args = parser.parse_args()
     job_file = args.job_file
     verbose = args.verbose
     n_passes = args.n_passes
     sleep_time = args.sleep_time
+    keep_time = args.keep_time
     lock_suffix = args.lock_suffix
     lock_dir = os.path.dirname(job_file)
 
     GPU = namedtuple('GPU', ['num', 'mem_free', 'util_free'])  # mem in MiB, util as % not used
 
-    NewProcess = namedtuple('NewProcess', ['command', 'gpu_num', 'mem_needed', 'util_needed'])
-    new_processes_running = []
+    NewProcess = namedtuple('NewProcess', ['command', 'gpu_num', 'mem_needed', 'util_needed', 'timestamp'])
+    new_processes = []
 
     mem_pattern = re.compile('(\d+)MiB / (\d+)MiB')
     util_pattern = re.compile('\d+MiB\s+\|\s+(\d+)%')  # find the percent after the memory; the one before is about cooling percent
@@ -104,7 +109,7 @@ if __name__ == '__main__':
                     sleep(sleep_time)
                     continue
 
-                mem_needed, util_needed, job_script = job_spec.split('\t')
+                mem_needed, util_needed, job_script = job_spec.split('|')
                 mem_needed = int(mem_needed)
                 util_needed = int(util_needed)
 
@@ -129,12 +134,20 @@ if __name__ == '__main__':
                     except KeyError:
                         gpus[i] = [gpu]
 
-            # subtract mem and util used by new processes from that which is shown to be free
-            new_processes_running = list(filter(lambda process: process.command not in info_string, new_processes_running))
+            # remove processes that have shown up on the GPU
+            new_processes = list(filter(lambda process: process.command not in info_string, new_processes))
+            # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
+            now = time()
+            new_processes = list(filter(lambda process: now - process.timestamp < keep_time, new_processes))
 
+            if verbose > 1:
+                print('New processes not yet seen on GPU:')
+                print('\n'.join(str(process) for process in new_processes))
+
+            # subtract mem and util used by new processes from that which is shown to be free
             mem_newly_used = [0] * len(gpus)
             util_newly_used = [0] * len(gpus)
-            for process in new_processes_running:
+            for process in new_processes:
                 mem_newly_used[process.gpu_num] += process.mem_needed
                 util_newly_used[process.gpu_num] += process.util_needed
 
@@ -144,8 +157,7 @@ if __name__ == '__main__':
                         sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[i])
                     for i, gpu_list in enumerate(gpus.values())]
 
-            gpus = filter(lambda gpu: gpu.mem_free >= mem_needed, gpus)
-            gpus = filter(lambda gpu: gpu.util_free >= util_needed, gpus)
+            gpus = filter(lambda gpu: gpu.mem_free >= mem_needed and gpu.util_free >= util_needed, gpus)
 
             try:
                 best_gpu = max(gpus, key=lambda gpu: gpu.util_free)
@@ -157,13 +169,13 @@ if __name__ == '__main__':
                 sleep(sleep_time)
                 continue
 
-            job_script = job_script.format(best_gpu.num) + ' &'  # make sure to background the script
-            run(job_script, shell=True)
+            job_script = job_script.format(best_gpu.num)
+            run(f'{job_script} &', shell=True) # make sure to background the script
 
             if verbose:
                 print("Started job:\n\t{}".format(job_script))
 
-            new_processes_running.append(NewProcess(job_script, best_gpu.num, mem_needed=mem_needed, util_needed=util_needed))
+            new_processes.append(NewProcess(job_script, best_gpu.num, mem_needed=mem_needed, util_needed=util_needed, timestamp=time()))
 
             # this job is running, so remove it from the list
             with open(job_file, 'w') as f:
