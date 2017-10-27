@@ -7,12 +7,15 @@ from time import time, sleep
 import signal
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
+
 def lock_exists() -> bool:
     locks = list(filter(lambda fname: fname.startswith('.job_lock'), os.listdir(lock_dir)))
     return len(locks) > 0
 
+
 def make_lock() -> None:
     open(f"{lock_dir}/.job_lock_{lock_suffix}", 'w').close()
+
 
 def remove_lock() -> None:
     try:
@@ -20,10 +23,12 @@ def remove_lock() -> None:
     except FileNotFoundError:
         pass
 
+
 def check_lock() -> None:
     locks = list(filter(lambda fname: fname.startswith('.job_lock'), os.listdir(lock_dir)))
     assert len(locks) == 1, "Multiple locks found! {}".format('\n'.join(locks))
     assert locks[0] == f'.job_lock_{lock_suffix}', f'Found lock {locks[0]} when expecting .job_lock_{lock_suffix}.'
+
 
 def cleanup(*args) -> None:
     """
@@ -46,6 +51,8 @@ if __name__ == '__main__':
                             formatter_class=RawDescriptionHelpFormatter)
     parser.add_argument('-f', '--job_file', help="Path to the file listing the jobs to run. The lock will be made in the "
                                                  "same directory as the jobs file.", required=True)
+    parser.add_argument('-sg', '--skip_gpus', help="Which GPUs to skip; no jobs will be assigned to these. [default is []]",
+                        type=int, nargs='+', default=[])
     parser.add_argument('-n', '--n_passes', help="The number of times to check nvidia-smi. Memory used by each gpu will "
                                                  "be the max value of all checks and utilization used will be the mean. "
                                                  "[default = 4]", type=int, default=4)
@@ -63,6 +70,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     job_file = args.job_file
+    skip_gpus = args.skip_gpus
     verbose = args.verbose
     n_passes = args.n_passes
     sleep_time = args.sleep_time
@@ -87,7 +95,7 @@ if __name__ == '__main__':
         while True:
             assert not os.path.isfile(f"{lock_dir}/.job_lock_{lock_suffix}"), "runner lock wasn't released!"
 
-            ### check if you have any jobs
+            # check if you have any jobs
             while not os.path.isfile(job_file):
                 sleep(sleep_time)
 
@@ -96,7 +104,7 @@ if __name__ == '__main__':
 
             make_lock()
             try:
-                check_lock() # fails if we aren't the sole lock-holder now
+                check_lock()  # fails if we aren't the sole lock-holder now
             except AssertionError:
                 remove_lock()
                 continue
@@ -104,7 +112,7 @@ if __name__ == '__main__':
             with open(job_file) as f:
                 job_spec = f.readline().strip()
 
-                if not job_spec: # empty file
+                if not job_spec:  # empty file
                     remove_lock()
                     sleep(sleep_time)
                     continue
@@ -118,7 +126,7 @@ if __name__ == '__main__':
                 if verbose:
                     print('Found job (+ {} others)\n\t{}'.format(len(other_jobs), job_spec))
 
-            ### check if there's a gpu you can run this job on (enough memory and util free)
+            # check if there's a gpu you can run this job on (enough memory and util free)
             gpus = {}
 
             for _ in range(n_passes):
@@ -128,6 +136,9 @@ if __name__ == '__main__':
                 util_usage = list(re.finditer(util_pattern, info_string))
 
                 for i in range(len(mem_usage)):
+                    if i in skip_gpus:
+                        continue
+
                     gpu = GPU(i, int(mem_usage[i].group(2)) - int(mem_usage[i].group(1)), 100 - int(util_usage[i].group(1)))
                     try:
                         gpus[i].append(gpu)
