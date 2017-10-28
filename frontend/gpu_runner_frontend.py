@@ -13,6 +13,16 @@ from gpu_runner import cleanup, write_to_locked_file, get_gpus
 app = Flask(__name__)
 
 
+def get_abs_path(relative_path: str) -> str:
+    """
+    :param relative_path: relative path from this script to a file or directory
+    :returns: absolute path to the given file or directory
+    """
+
+    script_dir = os.path.dirname(__file__)
+    return os.path.realpath(os.path.join(script_dir, relative_path))
+
+
 def is_logged_in(func):
     @wraps(func)
     def wrap(*args, **kwargs):
@@ -35,7 +45,7 @@ def login():
         username = json['username']
         password = json['password']
 
-        with open('passwords', 'rb') as f:
+        with open(get_abs_path('passwords'), 'rb') as f:
             passwords = pickle.load(f)
 
         if username in passwords and sha256_crypt.verify(password, passwords.get(username)):
@@ -71,8 +81,11 @@ def gpu():
 @app.route('/data/jobs')
 @is_logged_in
 def jobs():
-    with open(app.config['job_file']) as f:
-        return jsonify(f.readlines())
+    try:
+        with open(app.config['job_file']) as f:
+            return jsonify(f.readlines())
+    except FileNotFoundError:
+        return '[]'
 
 
 if __name__ == '__main__':
@@ -105,7 +118,7 @@ if __name__ == '__main__':
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, lambda signum, frame: cleanup(signum, frame, app.config['lock_dir'], args.lock_suffix))
 
-    with open('flask_key', 'rb') as f:
+    with open(get_abs_path('flask_key'), 'rb') as f:
         app.secret_key = f.read()
 
     app.run()
