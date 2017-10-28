@@ -6,37 +6,66 @@ from collections import namedtuple
 from time import time, sleep
 import signal
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from typing import Sequence, List
 
 
-def lock_exists() -> bool:
+def lock_exists(lock_dir: str) -> bool:
     locks = list(filter(lambda fname: fname.startswith('.job_lock'), os.listdir(lock_dir)))
     return len(locks) > 0
 
 
-def make_lock() -> None:
+def make_lock(lock_dir: str, lock_suffix: str) -> None:
     open(f"{lock_dir}/.job_lock_{lock_suffix}", 'w').close()
 
 
-def remove_lock() -> None:
+def remove_lock(lock_dir: str, lock_suffix: str) -> None:
     try:
         os.remove(f"{lock_dir}/.job_lock_{lock_suffix}")
     except FileNotFoundError:
         pass
 
 
-def check_lock() -> None:
+def check_lock(lock_dir: str, lock_suffix: str) -> None:
     locks = list(filter(lambda fname: fname.startswith('.job_lock'), os.listdir(lock_dir)))
     assert len(locks) == 1, "Multiple locks found! {}".format('\n'.join(locks))
     assert locks[0] == f'.job_lock_{lock_suffix}', f'Found lock {locks[0]} when expecting .job_lock_{lock_suffix}.'
 
 
-def cleanup(*args) -> None:
+def cleanup(signum, frame, lock_dir: str, lock_suffix: str) -> None:
     """
-    :param args: unused; given by signal
+    :param signum: signal number; unused (given by signal)
+    :param frame: interrupted stack frame; unused (given by signal)
     """
 
-    remove_lock()
+    remove_lock(lock_dir, lock_suffix)
     sys.exit(0)
+
+
+def nvidia_smi() -> str:
+    return run('nvidia-smi', stdout=PIPE).stdout.decode()
+
+
+def get_gpus(skip_gpus: Sequence[int]=()) -> list:
+    """
+    :param skip_gpus: which GPUs not to include in the list
+    :returns: a list of namedtuple('GPU', ['num', 'mem_free', 'util_free'])
+    """
+
+    GPU = namedtuple('GPU', ['num', 'mem_free', 'util_free'])  # mem in MiB, util as % not used
+
+    info_string = nvidia_smi()
+
+    mem_pattern = re.compile('(\d+)MiB / (\d+)MiB')
+    util_pattern = re.compile('\d+MiB\s+\|\s+(\d+)%')  # find the percent after the memory; the one before is about cooling percent
+
+    mem_usage = list(re.finditer(mem_pattern, info_string))
+    util_usage = list(re.finditer(util_pattern, info_string))
+
+    gpus = [GPU(i,
+                int(mem_usage[i].group(2)) - int(mem_usage[i].group(1)),
+                100 - int(util_usage[i].group(1)))
+            for i in range(len(mem_usage)) if i not in skip_gpus]
+    return gpus
 
 
 if __name__ == '__main__':
@@ -78,17 +107,12 @@ if __name__ == '__main__':
     lock_suffix = args.lock_suffix
     lock_dir = os.path.dirname(job_file)
 
-    GPU = namedtuple('GPU', ['num', 'mem_free', 'util_free'])  # mem in MiB, util as % not used
-
     NewProcess = namedtuple('NewProcess', ['command', 'gpu_num', 'mem_needed', 'util_needed', 'timestamp'])
     new_processes = []
 
-    mem_pattern = re.compile('(\d+)MiB / (\d+)MiB')
-    util_pattern = re.compile('\d+MiB\s+\|\s+(\d+)%')  # find the percent after the memory; the one before is about cooling percent
-
     # try to prevent this process from exiting without releasing the lock
-    for sig in [signal.SIGTERM]:
-        signal.signal(sig, cleanup)
+    for sig in [signal.SIGTERM, signal.SIGINT]:
+        signal.signal(sig, lambda signum, frame: cleanup(signum, frame, lock_dir, lock_suffix))
 
     try:
 
@@ -99,21 +123,21 @@ if __name__ == '__main__':
             while not os.path.isfile(job_file):
                 sleep(sleep_time)
 
-            while lock_exists():
+            while lock_exists(lock_dir):
                 sleep(sleep_time)
 
-            make_lock()
+            make_lock(lock_dir, lock_suffix)
             try:
-                check_lock()  # fails if we aren't the sole lock-holder now
+                check_lock(lock_dir, lock_suffix)  # fails if we aren't the sole lock-holder now
             except AssertionError:
-                remove_lock()
+                remove_lock(lock_dir, lock_suffix)
                 continue
 
             with open(job_file) as f:
                 job_spec = f.readline().strip()
 
                 if not job_spec:  # empty file
-                    remove_lock()
+                    remove_lock(lock_dir, lock_suffix)
                     sleep(sleep_time)
                     continue
 
@@ -130,22 +154,14 @@ if __name__ == '__main__':
             gpus = {}
 
             for _ in range(n_passes):
-                info_string = run('nvidia-smi', stdout=PIPE).stdout.decode()
-
-                mem_usage = list(re.finditer(mem_pattern, info_string))
-                util_usage = list(re.finditer(util_pattern, info_string))
-
-                for i in range(len(mem_usage)):
-                    if i in skip_gpus:
-                        continue
-
-                    gpu = GPU(i, int(mem_usage[i].group(2)) - int(mem_usage[i].group(1)), 100 - int(util_usage[i].group(1)))
+                for (i, gpu) in enumerate(get_gpus(skip_gpus)):
                     try:
                         gpus[i].append(gpu)
                     except KeyError:
                         gpus[i] = [gpu]
 
             # remove processes that have shown up on the GPU
+            info_string = nvidia-smi()
             new_processes = list(filter(lambda process: process.command not in info_string, new_processes))
             # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
             now = time()
@@ -176,7 +192,7 @@ if __name__ == '__main__':
                 if verbose:
                     print(f"Selected best gpu: {best_gpu}")
             except ValueError: # max gets no gpus because none have enough mem_free and util_free
-                remove_lock()
+                remove_lock(lock_dir, lock_suffix)
                 sleep(sleep_time)
                 continue
 
@@ -192,7 +208,6 @@ if __name__ == '__main__':
             with open(job_file, 'w') as f:
                 f.writelines(other_jobs)
 
-            remove_lock()
-
+            remove_lock(lock_dir, lock_suffix)
     finally:
-        remove_lock()
+        remove_lock(lock_dir, lock_suffix)
