@@ -19,7 +19,9 @@
       <v-card>
         <v-card-title class="mt-3 title">GPU Usage</v-card-title>
         <v-card-text>
-          [[ gpuUsage ]]
+          <ul v-for="gpu in gpuUsage">
+            <li>GPU [[ gpu.num ]]: [[ gpu.mem_used ]] / [[ gpu.mem_free + gpu.mem_used ]] MiB [[ gpu.util_used ]]%</li>
+          </ul>
         </v-card-text>
       </v-card>
     </v-container>
