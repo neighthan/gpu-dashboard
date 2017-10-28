@@ -5,7 +5,7 @@ import signal
 import os
 import sys
 sys.path.append(os.path.realpath(os.path.join(__file__, '../..')))
-from gpu_runner import lock_exists, make_lock, remove_lock, check_lock, cleanup, write_to_locked_file
+from gpu_runner import lock_exists, make_lock, remove_lock, check_lock, cleanup, write_to_locked_file, get_gpus
 
 app = Flask(__name__)
 
@@ -21,23 +21,7 @@ def main():
 
 @app.route('/data/gpu')
 def gpu():
-    return jsonify([
-        {
-            'id': 0,
-            'mem_used': 3000,
-            'util_used': 28
-        },
-        {
-            'id': 1,
-            'mem_used': 0,
-            'util_used': 0
-        },
-        {
-            'id': 2,
-            'mem_used': 9800,
-            'util_used': 98
-        }
-    ])
+    return jsonify([gpu._asdict() for gpu in get_gpus()])
 
 
 @app.route('/data/jobs')
