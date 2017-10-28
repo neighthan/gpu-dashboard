@@ -5,7 +5,7 @@ import signal
 import os
 import sys
 sys.path.append(os.path.realpath(os.path.join(__file__, '../..')))
-from gpu_runner import lock_exists, make_lock, remove_lock, check_lock, cleanup
+from gpu_runner import lock_exists, make_lock, remove_lock, check_lock, cleanup, write_to_locked_file
 
 app = Flask(__name__)
 
@@ -13,25 +13,7 @@ app = Flask(__name__)
 @app.route('/', methods=['GET', 'POST'])
 def main():
     if request.method == 'POST':
-        finished = False
-        while True:
-            try:
-                while lock_exists(app.config['lock_dir']):
-                    sleep(1)
-
-                make_lock(app.config['lock_dir'], app.config['lock_suffix'])
-                try:
-                    check_lock(app.config['lock_dir'], app.config['lock_suffix'])  # fails if we aren't the sole lock-holder now
-                except AssertionError:
-                    continue
-
-                with open(app.config['job_file'], 'a+') as f:
-                    f.write(str(request.json['commands']))
-                finished = True
-            finally:
-                remove_lock(app.config['lock_dir'], app.config['lock_suffix'])
-                if finished:
-                    break
+        write_to_locked_file(app.config['job_file'], str(request.json['commands']), app.config['lock_dir'], app.config['lock_suffix'])
         return ''  # I don't get this... have to return something, but it doesn't matter what? It won't render anything new
     else:
         return render_template('main.html')

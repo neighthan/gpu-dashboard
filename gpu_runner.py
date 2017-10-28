@@ -43,6 +43,27 @@ def cleanup(signum, frame, lock_dir: str, lock_suffix: str) -> None:
     # but then this process may resume and continue without the lock when it should need to acquire it first
 
 
+def write_to_locked_file(job_file: str, text: str, lock_dir: str, lock_suffix: str, open_mode: str='a+') -> None:
+    while True:
+        try:
+            while lock_exists(lock_dir):
+                sleep(1)
+
+            make_lock(lock_dir, lock_suffix)
+            try:
+                check_lock(lock_dir, lock_suffix)  # fails if we aren't the sole lock-holder now
+            except AssertionError:
+                continue
+
+            with open(job_file, open_mode) as f:
+                f.write(text)
+            finished = True
+        finally:
+            remove_lock(lock_dir, lock_suffix)
+            if finished:
+                break
+
+
 def nvidia_smi() -> str:
     return run('nvidia-smi', stdout=PIPE).stdout.decode()
 
