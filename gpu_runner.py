@@ -8,6 +8,8 @@ import signal
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from typing import Sequence, List
 
+GPU = namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])  # mem in MiB, util as % not used
+
 
 def lock_exists(lock_dir: str) -> bool:
     locks = list(filter(lambda fname: fname.startswith('.job_lock'), os.listdir(lock_dir)))
@@ -73,8 +75,6 @@ def get_gpus(skip_gpus: Sequence[int]=()) -> list:
     :param skip_gpus: which GPUs not to include in the list
     :returns: a list of namedtuple('GPU', ['num', 'mem_free', 'util_free'])
     """
-
-    GPU = namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])  # mem in MiB, util as % not used
 
     info_string = nvidia_smi()
 
@@ -186,7 +186,7 @@ if __name__ == '__main__':
                         gpus[i] = [gpu]
 
             # remove processes that have shown up on the GPU
-            info_string = nvidia-smi()
+            info_string = nvidia_smi()
             new_processes = list(filter(lambda process: process.command not in info_string, new_processes))
             # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
             now = time()
@@ -204,9 +204,11 @@ if __name__ == '__main__':
                 util_newly_used[process.gpu_num] += process.util_needed
 
             # set mem_free to max from each pass, util_free to mean
-            gpus = [GPU(i,
-                        max([gpu.mem_free for gpu in gpu_list]) - mem_newly_used[i],
-                        sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[i])
+            gpus = [GPU(num=i,
+                        mem_free=max([gpu.mem_free for gpu in gpu_list]) - mem_newly_used[i],
+                        util_free=sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[i],
+                        mem_used=None,  # don't need mem/util used now
+                        util_used=None)
                     for i, gpu_list in enumerate(gpus.values())]
 
             gpus = filter(lambda gpu: gpu.mem_free >= mem_needed and gpu.util_free >= util_needed, gpus)
