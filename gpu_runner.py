@@ -74,7 +74,7 @@ def get_gpus(skip_gpus: Sequence[int]=()) -> list:
     :returns: a list of namedtuple('GPU', ['num', 'mem_free', 'util_free'])
     """
 
-    GPU = namedtuple('GPU', ['num', 'mem_free', 'util_free'])  # mem in MiB, util as % not used
+    GPU = namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])  # mem in MiB, util as % not used
 
     info_string = nvidia_smi()
 
@@ -84,9 +84,11 @@ def get_gpus(skip_gpus: Sequence[int]=()) -> list:
     mem_usage = list(re.finditer(mem_pattern, info_string))
     util_usage = list(re.finditer(util_pattern, info_string))
 
-    gpus = [GPU(i,
-                int(mem_usage[i].group(2)) - int(mem_usage[i].group(1)),
-                100 - int(util_usage[i].group(1)))
+    gpus = [GPU(num=i,
+                mem_used=int(mem_usage[i].group(1)),
+                mem_free=int(mem_usage[i].group(2)) - int(mem_usage[i].group(1)),
+                util_used=int(util_usage[i].group(1)),
+                util_free=100 - int(util_usage[i].group(1)))
             for i in range(len(mem_usage)) if i not in skip_gpus]
     return gpus
 
