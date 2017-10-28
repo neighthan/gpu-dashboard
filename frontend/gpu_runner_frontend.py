@@ -103,7 +103,7 @@ if __name__ == '__main__':
 
     # try to prevent this process from exiting without releasing the lock
     for sig in [signal.SIGTERM, signal.SIGINT]:
-        signal.signal(sig, lambda signum, frame: cleanup(signum, frame, args.lock_dir, args.lock_suffix))
+        signal.signal(sig, lambda signum, frame: cleanup(signum, frame, app.config['lock_dir'], args.lock_suffix))
 
     with open('flask_key', 'rb') as f:
         app.secret_key = f.read()
