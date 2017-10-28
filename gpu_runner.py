@@ -38,7 +38,9 @@ def cleanup(signum, frame, lock_dir: str, lock_suffix: str) -> None:
     """
 
     remove_lock(lock_dir, lock_suffix)
-    sys.exit(0)
+    sys.exit(0)  # we exit even when interrupted because otherwise we either have to hold the lock while interrupted
+    # which may prevent other processes from interacting with the jobs file or we have to release the lock when interrupted
+    # but then this process may resume and continue without the lock when it should need to acquire it first
 
 
 def nvidia_smi() -> str:
