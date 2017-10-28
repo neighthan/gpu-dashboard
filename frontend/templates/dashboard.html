@@ -12,6 +12,10 @@
 <v-app id="app">
   <v-toolbar color="primary">
     <v-toolbar-title>GPU Runner</v-toolbar-title>
+    <v-spacer></v-spacer>
+    <v-toolbar-items>
+      <v-btn flat href="/logout">Logout</v-btn>
+    </v-toolbar-items>
   </v-toolbar>
 
   <main>
@@ -131,6 +135,8 @@
                 })
             },
             generateCommands: function() {
+                // make one command with each possible combination of the values of the different variables
+
                 let n_commands = this.job_vars.map((job_var) => job_var.values.split(', ').length)
                     .reduce((product, length) => product * length, 1)
 
@@ -157,7 +163,7 @@
                 this.generatedCommands = commands.join('\n')
             },
             submitCommands: function() {
-                this.$http.post('/', {commands: this.generatedCommands.trim() + '\n'})
+                this.$http.post('/dashboard', {commands: this.generatedCommands.trim() + '\n'})
                 this.generatedCommands = ''
             },
             getData: function() {

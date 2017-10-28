@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login</title>
+    <link href='https://fonts.googleapis.com/css?family=Roboto:300,400,500,700|Material+Icons' rel="stylesheet">
+    <link href="https://unpkg.com/vuetify/dist/vuetify.min.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
+</head>
+<body>
+
+<v-app id="app">
+  <v-toolbar color="primary">
+    <v-toolbar-title>GPU Runner Login</v-toolbar-title>
+  </v-toolbar>
+
+  <main>
+    <v-container fluid>
+      <v-card>
+        <v-card-text>
+          <v-flex xs4>
+            <v-text-field label="Username" v-model="username"></v-text-field>
+            <v-text-field
+                label="Password"
+                v-model="password"
+                :append-icon="visible ? 'visibility' : 'visibility_off'"
+                :append-icon-cb="() => (visible = !visible)"
+                :type="visible ? 'text' : 'password'"
+            ></v-text-field>
+          </v-flex>
+          <v-btn class="primary" @click="login">Login</v-btn>
+        </v-card-text>
+      </v-card>
+    </v-container>
+  </main>
+
+  <v-footer color="primary"></v-footer>
+</v-app>
+
+<script src="https://unpkg.com/vue"></script>
+<script src="https://unpkg.com/vuetify/dist/vuetify.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue-resource@1.3.4"></script>
+
+<script>
+    const vue = new Vue({
+        el: '#app',
+        data: {
+            username: '',
+            password: '',
+            visible: false
+        },
+        methods: {
+            login: function() {
+                this.$http.post('/login', {username: this.username, password: this.password})
+            }
+        },
+        delimiters: ["[[", "]]"]
+    })
+</script>
+</body>
+</html>

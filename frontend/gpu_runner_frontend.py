@@ -1,30 +1,75 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+from passlib.hash import sha256_crypt
+from functools import wraps
+import pickle
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import signal
 
 import os
 import sys
 sys.path.append(os.path.realpath(os.path.join(__file__, '../..')))
-from gpu_runner import lock_exists, make_lock, remove_lock, check_lock, cleanup, write_to_locked_file, get_gpus
+from gpu_runner import cleanup, write_to_locked_file, get_gpus
 
 app = Flask(__name__)
 
 
-@app.route('/', methods=['GET', 'POST'])
-def main():
+def is_logged_in(func):
+    @wraps(func)
+    def wrap(*args, **kwargs):
+        if session.get('username'):
+            return func(*args, **kwargs)
+        else:
+            return redirect(url_for('login'))
+    return wrap
+
+
+@app.route('/')
+def index():
+    return redirect(url_for('login'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
     if request.method == 'POST':
-        write_to_locked_file(app.config['job_file'], str(request.json['commands']), app.config['lock_dir'], app.config['lock_suffix'])
+        json = request.get_json()
+        username = json['username']
+        password = json['password']
+
+        with open('passwords', 'rb') as f:
+            passwords = pickle.load(f)
+
+        if username in passwords and sha256_crypt.verify(password, passwords.get(username)):
+            session['username'] = username
+            return redirect(url_for('dashboard'))
+        else:
+            pass  # msg... bad username or password
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+@app.route('/dashboard', methods=['GET', 'POST'])
+@is_logged_in
+def dashboard():
+    if request.method == 'POST':
+        write_to_locked_file(app.config['job_file'], str(request.get_json()['commands']), app.config['lock_dir'], app.config['lock_suffix'])
         return ''  # I don't get this... have to return something, but it doesn't matter what? It won't render anything new
     else:
-        return render_template('main.html')
+        return render_template('dashboard.html')
 
 
 @app.route('/data/gpu')
+@is_logged_in
 def gpu():
     return jsonify([gpu._asdict() for gpu in get_gpus()])
 
 
 @app.route('/data/jobs')
+@is_logged_in
 def jobs():
     with open(app.config['job_file']) as f:
         return jsonify(f.readlines())
@@ -60,5 +105,7 @@ if __name__ == '__main__':
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, lambda signum, frame: cleanup(signum, frame, args.lock_dir, args.lock_suffix))
 
+    with open('flask_key', 'rb') as f:
+        app.secret_key = f.read()
 
     app.run()
