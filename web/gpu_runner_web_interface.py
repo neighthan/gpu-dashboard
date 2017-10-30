@@ -105,13 +105,16 @@ if __name__ == '__main__':
     parser.add_argument('-ls', '--lock_suffix', help="Suffix that this script will use to tell that the lock on the file "
                                                      "belongs to it. This shouldn't be used by any other script. "
                                                      "[default = frontend]", default='frontend')
+    parser.add_argument('-p', '--port', help="Which port to run on [default = 5000]", default=5000, type=int)
+    parser.add_argument('-d', '--debug', help="Flag: whether to turn on debug mode", action='store_true')
 
     args = parser.parse_args()
     app.config.update(dict(
         job_file    = args.job_file,
         sleep_time  = args.sleep_time,
         lock_suffix = args.lock_suffix,
-        lock_dir    = os.path.dirname(args.job_file))
+        lock_dir    = os.path.dirname(args.job_file)),
+        DEBUG       = args.debug
     )
 
     # try to prevent this process from exiting without releasing the lock
@@ -121,4 +124,4 @@ if __name__ == '__main__':
     with open(get_abs_path('flask_key'), 'rb') as f:
         app.secret_key = f.read()
 
-    app.run()
+    app.run(port=args.port)
