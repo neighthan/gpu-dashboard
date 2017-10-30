@@ -50,7 +50,7 @@ def login():
 
         if username in passwords and sha256_crypt.verify(password, passwords.get(username)):
             session['username'] = username
-            return redirect(url_for('dashboard'))
+            return jsonify({'url': url_for('dashboard')})
         else:
             pass  # msg... bad username or password
     return render_template('login.html')

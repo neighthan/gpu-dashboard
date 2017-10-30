@@ -1,4 +1,4 @@
-frontend/flask_key
-frontend/passwords
+web/flask_key
+web/passwords
 **/__pycache__
 **/.idea
