@@ -97,7 +97,7 @@
 <script src="https://unpkg.com/vue"></script>
 <script src="https://unpkg.com/vuetify/dist/vuetify.js"></script>
 <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/vue-resource@1.3.4"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 
 <script>
     let refreshDelay = 30000
@@ -163,15 +163,16 @@
                 this.generatedCommands = commands.join('\n')
             },
             submitCommands: function() {
-                this.$http.post('/dashboard', {commands: this.generatedCommands.trim() + '\n'})
+                axios.post('/dashboard', {commands: this.generatedCommands.trim() + '\n'})
                 this.generatedCommands = ''
             },
             getData: function() {
-                $.getJSON('/data/gpu', (response) => {
-                    this.gpuUsage = response
+                axios.get('/data/gpu').then((response) => {
+                    this.gpuUsage = response.data
                 })
 
-                $.getJSON('/data/jobs', (jobs) => {
+                axios.get('/data/jobs').then((response) => {
+                    let jobs = response.data
                     this.jobs = []
                     for (let job of jobs) {
                         job = job.split('|')
