@@ -4,11 +4,9 @@ from functools import wraps
 import pickle
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import signal
-
 import os
-import sys
-sys.path.append(os.path.realpath(os.path.join(__file__, '../..')))
-from gpu_runner import cleanup, write_to_locked_file, get_gpus
+from gpu_utils import get_gpus
+from locking import cleanup, write_to_locked_file
 
 app = Flask(__name__)
 
