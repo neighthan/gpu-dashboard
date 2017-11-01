@@ -10,11 +10,6 @@ pids = re.findall(pid_matcher, gpu_info)
 
 print(gpu_info)
 
-try:
+if pids:
     # just want to print the headers once
-    print(run(["ps", "u", pids[0]], stdout=PIPE).stdout.decode(), end="")
-
-    for pid in pids[1:]:
-        print(run(["ps", "--no-headers", "u", pid], stdout=PIPE).stdout.decode(), end="")
-except IndexError:  # no pids
-    pass
+    print(run(["ps", "u", ' '.join(pids)], stdout=PIPE).stdout.decode(), end="")
