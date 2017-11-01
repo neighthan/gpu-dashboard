@@ -11,5 +11,4 @@ pids = re.findall(pid_matcher, gpu_info)
 print(gpu_info)
 
 if pids:
-    # just want to print the headers once
-    print(run(["ps", "u", ' '.join(pids)], stdout=PIPE).stdout.decode(), end="")
+    print(run(["ps", "u", *pids], stdout=PIPE).stdout.decode())
