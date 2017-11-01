@@ -64,10 +64,8 @@ def tf_init(device: Optional[int]=None, tf_logging_verbosity: str='1') -> tf.Con
     :returns: the aforementioned TensorFlow config
     """
 
-    if device:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(device)
-    else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = get_best_gpu()
+    device = device if device is not None else get_best_gpu()
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(device)
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = tf_logging_verbosity
 
