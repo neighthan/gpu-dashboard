@@ -5,6 +5,9 @@ import pickle
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import signal
 import os
+import sys
+from getpass import getpass
+sys.path.append('../')
 from gpu_utils import get_gpus
 from locking import cleanup, write_to_locked_file
 
@@ -46,11 +49,12 @@ def login():
         with open(get_abs_path('passwords'), 'rb') as f:
             passwords = pickle.load(f)
 
-        if username in passwords and sha256_crypt.verify(password, passwords.get(username)):
+        if username in passwords and sha256_crypt.verify(password, passwords[username]):
             session['username'] = username
             return jsonify({'url': url_for('dashboard')})
         else:
-            pass  # msg... bad username or password
+            # msg... bad username or password
+            return jsonify({'url': ''})
     return render_template('login.html')
 
 
@@ -115,11 +119,36 @@ if __name__ == '__main__':
         DEBUG       = args.debug
     )
 
+    key_fname = get_abs_path('flask_key')
+    passwords_fname = get_abs_path('passwords')
+
+    # setup on first time use
+    if not os.path.isfile(key_fname):
+        from os import urandom, chmod
+        with open(key_fname, 'wb') as f:
+            f.write(urandom(50))
+        chmod(key_fname, 0o600)
+
+    if not os.path.isfile(passwords_fname):
+        username = input('Enter your username: ')
+        while True:
+            password = getpass('Enter your password: ')
+            password_confirmation = getpass('Confirm your password: ')
+            if password == password_confirmation:
+                break
+            else:
+                print("Passwords didn't match! Try again.")
+
+        import pickle
+        with open(passwords_fname, 'wb') as f:
+            pickle.dump({username: sha256_crypt.encrypt(password)}, f)
+        chmod(passwords_fname, 0o600)
+
     # try to prevent this process from exiting without releasing the lock
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, lambda signum, frame: cleanup(signum, frame, app.config['lock_dir'], args.lock_suffix))
 
-    with open(get_abs_path('flask_key'), 'rb') as f:
+    with open(key_fname, 'rb') as f:
         app.secret_key = f.read()
 
     app.run(port=args.port)
