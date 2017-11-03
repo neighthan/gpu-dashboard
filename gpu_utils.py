@@ -26,6 +26,8 @@ def get_gpus(skip_gpus: Sequence[int]=()) -> List[GPU]:
     mem_usage = list(re.finditer(mem_pattern, info_string))
     util_usage = list(re.finditer(util_pattern, info_string))
 
+    assert len(mem_usage) == len(util_usage)
+
     gpus = [GPU(num=i,
                 mem_used=int(mem_usage[i].group(1)),
                 mem_free=int(mem_usage[i].group(2)) - int(mem_usage[i].group(1)),

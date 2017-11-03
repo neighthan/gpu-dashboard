@@ -2,6 +2,7 @@ from locking import acquire_lock, release_lock, setup_cleanup
 from gpu_utils import GPU, get_gpus, nvidia_smi
 from subprocess import run
 import os
+import sys
 from collections import namedtuple
 from time import time, sleep
 import numpy as np
@@ -33,6 +34,8 @@ if __name__ == '__main__':
                                                    "for it be used by other processes). [default = 120]", type=float, default=120)
     parser.add_argument('-v', '--verbose', help='How much information to print while running. 0 for none, 1 for some, '
                                                 '2 for even more. [default = 0]', type=int, default=0)
+    parser.add_argument('-t', '--test', help="If given, the arguments will be printed then the process will exit. Useful "
+                                             "for debugging or testing flags before running.", action='store_true')
 
     args = parser.parse_args()
     job_file = args.job_file
@@ -42,6 +45,10 @@ if __name__ == '__main__':
     sleep_time = args.sleep_time
     keep_time = args.keep_time
     lock_suffix = str(np.random.randint(10000))
+
+    if args.test:
+        print(args)
+        sys.exit(0)
 
     NewProcess = namedtuple('NewProcess', ['command', 'gpu_num', 'mem_needed', 'util_needed', 'timestamp'])
     new_processes = []
@@ -79,11 +86,11 @@ if __name__ == '__main__':
             gpus = {}
 
             for _ in range(n_passes):
-                for (i, gpu) in enumerate(get_gpus(skip_gpus)):
+                for gpu in get_gpus(skip_gpus):
                     try:
-                        gpus[i].append(gpu)
+                        gpus[gpu.num].append(gpu)
                     except KeyError:
-                        gpus[i] = [gpu]
+                        gpus[gpu.num] = [gpu]
 
             # remove processes that have shown up on the GPU
             info_string = nvidia_smi()
@@ -97,19 +104,19 @@ if __name__ == '__main__':
                 print('\n'.join(str(process) for process in new_processes))
 
             # subtract mem and util used by new processes from that which is shown to be free
-            mem_newly_used = [0] * len(gpus)
-            util_newly_used = [0] * len(gpus)
+            mem_newly_used = {gpu_num: 0 for gpu_num in gpus}
+            util_newly_used = {gpu_num: 0 for gpu_num in gpus}
             for process in new_processes:
                 mem_newly_used[process.gpu_num] += process.mem_needed
                 util_newly_used[process.gpu_num] += process.util_needed
 
             # set mem_free to max from each pass, util_free to mean
-            gpus = [GPU(num=i,
-                        mem_free=max([gpu.mem_free for gpu in gpu_list]) - mem_newly_used[i],
-                        util_free=sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[i],
+            gpus = [GPU(num=num,
+                        mem_free=max([gpu.mem_free for gpu in gpu_list]) - mem_newly_used[num],
+                        util_free=sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[num],
                         mem_used=None,  # don't need mem/util used now
                         util_used=None)
-                    for i, gpu_list in enumerate(gpus.values())]
+                    for (num, gpu_list) in gpus.items()]
 
             gpus = [gpu for gpu in gpus if gpu.mem_free >= mem_needed and gpu.util_free >= util_needed]
 
@@ -117,7 +124,7 @@ if __name__ == '__main__':
                 best_gpu = max(gpus, key=lambda gpu: gpu.util_free)
 
                 if verbose:
-                    print(f"Selected best gpu.py: {best_gpu}")
+                    print(f"Selected best gpu: {best_gpu}")
             except ValueError:  # max gets no gpus because none have enough mem_free and util_free
                 release_lock(job_file, lock_suffix)
                 sleep(sleep_time)
