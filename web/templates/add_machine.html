@@ -29,7 +29,6 @@
               <v-text-field label="Name" v-model="name"></v-text-field>
               <v-text-field label="Address" v-model="address"></v-text-field>
               <v-text-field label="Username" v-model="username"></v-text-field>
-              <v-text-field label="Password Location" v-model="passwordLocation" append-icon="info"></v-text-field>
               </v-flex>
             <v-btn @click="addMachine()">Add Machine</v-btn>
           </v-container>
@@ -55,7 +54,6 @@
               <td>[[ props.item.name ]]</td>
               <td>[[ props.item.address ]]</td>
               <td>[[ props.item.username ]]</td>
-              <td>[[ props.item.passwordLocation ]]</td>
             </template>
           </v-data-table>
         </v-card-text>
@@ -84,19 +82,17 @@
             headers: [
                 {text: 'Name', value: 'name'},
                 {text: 'Address', value: 'address'},
-                {text: 'Username', value: 'username'},
-                {text: 'Password Location', value: 'passwordLocation'}
+                {text: 'Username', value: 'username'}
             ],
             search: ''
         },
         methods: {
             addMachine: function() {
-                axios.post('/add_machine', {action: 'add', name: this.name, address: this.address, username: this.username, passwordLocation: this.passwordLocation})
+                axios.post('/add_machine', {action: 'add', name: this.name, address: this.address, username: this.username})
                 this.dialog = false
                 this.name = ''
                 this.address = ''
                 this.username = ''
-                this.passwordLocation = ''
                 setTimeout(this.getMachines, 1000)
             },
             deleteMachines: function() {

@@ -110,7 +110,7 @@ def gpu():
         with open(get_abs_path('machines'), 'rb') as f:
             machines = pickle.load(f)
         gpus = {machine['name']: [gpu._asdict() for gpu in
-                                  get_gpus(ssh_command=f"sshpass -f {machine['passwordLocation']} ssh {machine['username']}@{machine['address']}")]
+                                  get_gpus(ssh_command=f"sshpass -p {ssh_password} ssh {machine['username']}@{machine['address']}")]
                 for machine in machines}
     except FileNotFoundError:  # nvidia-smi or machines not found
         gpus = {}
@@ -177,9 +177,9 @@ if __name__ == '__main__':
         chmod(key_fname, 0o600)
 
     if not os.path.isfile(passwords_fname):
-        username = input('Enter your username: ')
+        username = input('Create a username: ')
         while True:
-            password = getpass('Enter your password: ')
+            password = getpass('Create a password: ')
             password_confirmation = getpass('Confirm your password: ')
             if password == password_confirmation:
                 break
@@ -188,7 +188,11 @@ if __name__ == '__main__':
 
         with open(passwords_fname, 'wb') as f:
             pickle.dump({username: sha256_crypt.encrypt(password)}, f)
+            del password
+            del password_confirmation
         chmod(passwords_fname, 0o600)
+
+    ssh_password = getpass('Enter your SSH password: ')
 
     # try to prevent this process from exiting without releasing the lock
     for sig in [signal.SIGTERM, signal.SIGINT]:
