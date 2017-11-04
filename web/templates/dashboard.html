@@ -137,8 +137,14 @@
             generateCommands: function() {
                 // make one command with each possible combination of the values of the different variables
 
-                let n_commands = this.job_vars.map((job_var) => job_var.values.split(', ').length)
-                    .reduce((product, length) => product * length, 1)
+                let n_commands = this.job_vars.map((job_var) => {
+                    let values = job_var.values
+                    if (values.includes('range')) {
+                        return parseInt(values.match(/\d+/)[0])
+                    } else {
+                        return values.split(', ').length
+                    }
+                }).reduce((product, length) => product * length, 1)
 
                 let commands = Array(n_commands).fill([this.mem_needed, this.util_needed, this.command].join('|'))
 
@@ -146,7 +152,13 @@
 
                 for (let job_var of this.job_vars) {
                     let name = job_var['name']
-                    let values = job_var['values'].split(', ')
+                    let values = job_var['values']
+                    if (values.includes('range')) {
+                        values = [...Array(parseInt(values.match(/\d+/)[0])).keys()]
+                    } else {
+                        values = values.split(', ')
+                    }
+
                     let value_idx = 0
                     let last_switched = 0
 
