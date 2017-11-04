@@ -77,7 +77,11 @@ def dashboard():
 @app.route('/data/gpu')
 @is_logged_in
 def gpu():
-    return jsonify([gpu._asdict() for gpu in get_gpus()])
+    try:
+        gpus = [gpu._asdict() for gpu in get_gpus()]
+    except FileNotFoundError:  # nvidia-smi not found
+        gpus = []
+    return jsonify(gpus)
 
 
 @app.route('/data/jobs')
