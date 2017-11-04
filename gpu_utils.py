@@ -8,32 +8,56 @@ from typing import Sequence, Optional, List
 GPU = namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])  # mem in MiB, util as % not used
 
 
-def nvidia_smi(ssh_command: str='') -> str:
-    return run(f'{ssh_command} nvidia-smi'.split(' '), stdout=PIPE).stdout.decode()
+def nvidia_smi(ssh_command: str='', all_output: bool=False) -> str:
+    """
+    :param ssh_command: command to run before nvidia-smi to ssh into another machine
+    :param all_output: whether to return all output from nvidia-smi. If true, `nvidia-smi` (no flags) is run. Otherwise,
+                       `nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv` is run.
+                       This results in a format that is easier to parse to get memory and utilization information, but
+                       it doesn't contain all information that `nvidia-smi` does by default.
+    :returns: standard output from nvidia-smi
+    """
+
+    smi_command = 'nvidia-smi'
+    if not all_output:
+        smi_command += ' --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv'
+    return run(f'{ssh_command} {smi_command}'.split(' '), stdout=PIPE).stdout.decode()
 
 
-def get_gpus(skip_gpus: Sequence[int]=(), ssh_command: str='') -> List[GPU]:
+def get_gpus(skip_gpus: Sequence[int]=(), ssh_command: str='', keep_all: bool=False) -> List[GPU]:
     """
     :param skip_gpus: which GPUs not to include in the list
+    :param ssh_command: command to run before nvidia-smi to ssh into another machine
+    :param keep_all: whether to keep all GPUs in the returned list, even those that don't support utilization
+                     util_free and util_used will be None for such GPUs if they're kept
     :returns: a list of namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])
     """
 
     info_string = nvidia_smi(ssh_command)
 
-    mem_pattern = re.compile('(\d+)MiB / (\d+)MiB')
-    util_pattern = re.compile('\d+MiB\s+\|\s+(\d+)%')  # find the percent after the memory; the one before is about cooling percent
+    gpus = []
+    for line in info_string.strip().split('\n')[1:]:  # 0 has headers
+        num, mem_used, mem_total, util_used = line.split(', ')
 
-    mem_usage = list(re.finditer(mem_pattern, info_string))
-    util_usage = list(re.finditer(util_pattern, info_string))
+        num = int(num)
+        if num in skip_gpus:
+            continue
 
-    assert len(mem_usage) == len(util_usage)
+        mem_used = int(mem_used.split(' ')[0])
+        mem_total = int(mem_total.split(' ')[0])
+        mem_free = mem_total - mem_used
 
-    gpus = [GPU(num=i,
-                mem_used=int(mem_usage[i].group(1)),
-                mem_free=int(mem_usage[i].group(2)) - int(mem_usage[i].group(1)),
-                util_used=int(util_usage[i].group(1)),
-                util_free=100 - int(util_usage[i].group(1)))
-            for i in range(len(mem_usage)) if i not in skip_gpus]
+        try:
+            util_used = int(util_used.split(' ')[0])
+            util_free = 100 - util_used
+        except ValueError:  # utilization not supported
+            if not keep_all:
+                continue
+            util_used = None
+            util_free = None
+
+        gpus.append(GPU(num, mem_used, mem_free, util_used, util_free))
+
     return gpus
 
 
