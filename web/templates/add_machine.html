@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GPU Runner</title>
+    <link href='https://fonts.googleapis.com/css?family=Roboto:300,400,500,700|Material+Icons' rel="stylesheet">
+    <link href="https://unpkg.com/vuetify/dist/vuetify.min.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
+</head>
+<body>
+
+<v-app id="app">
+  <v-toolbar color="primary">
+    <v-toolbar-title>GPU Runner</v-toolbar-title>
+    <v-spacer></v-spacer>
+    <v-toolbar-items>
+      <v-btn flat href="/dashboard">Dashboard</v-btn>
+      <v-btn flat href="/logout">Logout</v-btn>
+    </v-toolbar-items>
+  </v-toolbar>
+
+  <main>
+    <v-dialog v-model="dialog">
+      <v-card>
+        <v-card-title class="mt-3 title">Add Machine</v-card-title>
+        <v-card-text>
+          <v-container fluid>
+            <v-flex xs12>
+              <v-text-field label="Name" v-model="name"></v-text-field>
+              <v-text-field label="Address" v-model="address"></v-text-field>
+              <v-text-field label="Username" v-model="username"></v-text-field>
+              <v-text-field label="Password Location" v-model="passwordLocation" append-icon="info"></v-text-field>
+              </v-flex>
+            <v-btn @click="addMachine()">Add Machine</v-btn>
+          </v-container>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <v-container fluid>
+      <v-card>
+        <v-card-title class="mt-3 title">
+          Machines
+          <v-spacer></v-spacer>
+          <v-btn @click.stop="dialog = true">Add Machine</v-btn>
+          <v-spacer></v-spacer>
+          <v-btn icon @click="deleteMachines()"><v-icon>delete</v-icon></v-btn>
+          <v-spacer></v-spacer>
+          <v-text-field append-icon="search" label="Search" single-line v-model="search"></v-text-field>
+        </v-card-title>
+        <v-card-text>
+          <v-data-table :headers="headers" :items="machines" :search="search" select-all v-model="selected" item-key="name">
+            <template slot="items" slot-scope="props">
+              <td><v-checkbox v-model="props.selected"></v-checkbox></td>
+              <td>[[ props.item.name ]]</td>
+              <td>[[ props.item.address ]]</td>
+              <td>[[ props.item.username ]]</td>
+              <td>[[ props.item.passwordLocation ]]</td>
+            </template>
+          </v-data-table>
+        </v-card-text>
+      </v-card>
+    </v-container>
+  </main>
+
+  <v-footer color="primary"></v-footer>
+</v-app>
+
+<script src="https://unpkg.com/vue"></script>
+<script src="https://unpkg.com/vuetify/dist/vuetify.js"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+<script>
+    const vue = new Vue({
+        el: '#app',
+        data: {
+            dialog: false,
+            name: '',
+            address: '',
+            username: '',
+            passwordLocation: '',
+            machines: [],
+            selected: [],
+            headers: [
+                {text: 'Name', value: 'name'},
+                {text: 'Address', value: 'address'},
+                {text: 'Username', value: 'username'},
+                {text: 'Password Location', value: 'passwordLocation'}
+            ],
+            search: ''
+        },
+        methods: {
+            addMachine: function() {
+                axios.post('/add_machine', {action: 'add', name: this.name, address: this.address, username: this.username, passwordLocation: this.passwordLocation})
+                this.dialog = false
+                this.name = ''
+                this.address = ''
+                this.username = ''
+                this.passwordLocation = ''
+                setTimeout(this.getMachines, 1000)
+            },
+            deleteMachines: function() {
+                if (vue.selected.length > 0) {
+                    axios.post('/add_machine', {action: 'delete', machines: this.selected})
+                    setTimeout(this.getMachines, 1000)
+                }
+            },
+            getMachines: function() {
+                axios.get('/data/machines').then((response) => {
+                  this.machines = response.data
+              })
+            }
+        },
+        mounted: function() {
+            this.getMachines()
+        },
+        delimiters: ["[[", "]]"]
+    })
+</script>
+</body>
+</html>

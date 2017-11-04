@@ -14,18 +14,21 @@
     <v-toolbar-title>GPU Runner</v-toolbar-title>
     <v-spacer></v-spacer>
     <v-toolbar-items>
+      <v-btn flat href="/add_machine">Add Machine</v-btn>
       <v-btn flat href="/logout">Logout</v-btn>
     </v-toolbar-items>
   </v-toolbar>
 
   <main>
-    <v-container fluid id="right">
+    <v-container fluid>
       <v-card>
         <v-card-title class="mt-3 title">GPU Usage</v-card-title>
         <v-card-text>
-          <ul v-for="gpu in gpuUsage">
-            <li>GPU [[ gpu.num ]]: [[ gpu.mem_used ]] / [[ gpu.mem_free + gpu.mem_used ]] MiB [[ gpu.util_used ]]%</li>
-          </ul>
+          <div v-for="gpuUsage in gpuUsageByMachine">
+            <ul v-for="gpu in gpuUsage">
+              <li>GPU [[ gpu.num ]]: [[ gpu.mem_used ]] / [[ gpu.mem_free + gpu.mem_used ]] MiB [[ gpu.util_used ]]%</li>
+            </ul>
+          </div>
         </v-card-text>
       </v-card>
 
@@ -94,7 +97,6 @@
 
 <script src="https://unpkg.com/vue"></script>
 <script src="https://unpkg.com/vuetify/dist/vuetify.js"></script>
-<script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
 <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 
 <script>
@@ -113,7 +115,7 @@
             mem_needed: 0,
             util_needed: 0,
             generatedCommands: '',
-            gpuUsage: '',
+            gpuUsageByMachine: '',
             jobs: [],
             headers: [
                 {text: 'Memory', value: 'mem'},
@@ -178,7 +180,7 @@
             },
             getData: function() {
                 axios.get('/data/gpu').then((response) => {
-                    this.gpuUsage = response.data
+                    this.gpuUsageByMachine = response.data
                 })
 
                 axios.get('/data/jobs').then((response) => {

@@ -1,4 +1,5 @@
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+import logging
 from passlib.hash import sha256_crypt
 from functools import wraps
 import pickle
@@ -6,6 +7,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import signal
 import os
 import sys
+import pickle
 from getpass import getpass
 sys.path.append('../')
 from gpu_utils import get_gpus
@@ -74,13 +76,44 @@ def dashboard():
         return render_template('dashboard.html')
 
 
+@app.route('/add_machine', methods=['GET', 'POST'])
+@is_logged_in
+def add_machine():
+    if request.method == 'POST':
+        json = request.get_json()
+        action = json.pop('action')
+
+        try:
+            with open(get_abs_path('machines'), 'rb') as f:
+                machines = pickle.load(f)
+        except FileNotFoundError:
+            machines = []
+
+        if action == 'add':
+            machines.append(json)
+        else:
+            assert action == 'delete'
+            delete_names = [machine['name'] for machine in json['machines']]
+            machines = [machine for machine in machines if machine['name'] not in delete_names]
+
+        with open(get_abs_path('machines'), 'wb') as f:
+            pickle.dump(machines, f)
+        return ''
+    else:
+        return render_template('add_machine.html')
+
+
 @app.route('/data/gpu')
 @is_logged_in
 def gpu():
     try:
-        gpus = [gpu._asdict() for gpu in get_gpus()]
-    except FileNotFoundError:  # nvidia-smi not found
-        gpus = []
+        with open(get_abs_path('machines'), 'rb') as f:
+            machines = pickle.load(f)
+        gpus = {machine['name']: [gpu._asdict() for gpu in
+                                  get_gpus(ssh_command=f"sshpass -f {machine['passwordLocation']} ssh {machine['username']}@{machine['address']}")]
+                for machine in machines}
+    except FileNotFoundError:  # nvidia-smi or machines not found
+        gpus = {}
     return jsonify(gpus)
 
 
@@ -90,6 +123,16 @@ def jobs():
     try:
         with open(app.config['job_file']) as f:
             return jsonify(f.readlines())
+    except FileNotFoundError:
+        return '[]'
+
+
+@app.route('/data/machines')
+@is_logged_in
+def machines():
+    try:
+        with open(get_abs_path('machines'), 'rb') as f:
+            return jsonify(pickle.load(f))
     except FileNotFoundError:
         return '[]'
 
@@ -143,7 +186,6 @@ if __name__ == '__main__':
             else:
                 print("Passwords didn't match! Try again.")
 
-        import pickle
         with open(passwords_fname, 'wb') as f:
             pickle.dump({username: sha256_crypt.encrypt(password)}, f)
         chmod(passwords_fname, 0o600)

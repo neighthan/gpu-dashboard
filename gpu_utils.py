@@ -8,17 +8,17 @@ from typing import Sequence, Optional, List
 GPU = namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])  # mem in MiB, util as % not used
 
 
-def nvidia_smi() -> str:
-    return run('nvidia-smi', stdout=PIPE).stdout.decode()
+def nvidia_smi(ssh_command: str='') -> str:
+    return run(f'{ssh_command} nvidia-smi'.split(' '), stdout=PIPE).stdout.decode()
 
 
-def get_gpus(skip_gpus: Sequence[int]=()) -> List[GPU]:
+def get_gpus(skip_gpus: Sequence[int]=(), ssh_command: str='') -> List[GPU]:
     """
     :param skip_gpus: which GPUs not to include in the list
     :returns: a list of namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])
     """
 
-    info_string = nvidia_smi()
+    info_string = nvidia_smi(ssh_command)
 
     mem_pattern = re.compile('(\d+)MiB / (\d+)MiB')
     util_pattern = re.compile('\d+MiB\s+\|\s+(\d+)%')  # find the percent after the memory; the one before is about cooling percent
