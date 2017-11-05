@@ -36,7 +36,7 @@
         <v-card-title class="mt-3 title">
           New Jobs
           <v-spacer></v-spacer>
-          <v-select :items="machines.map(machine => machine.name)" v-model="selectedMachine"></v-select>
+          <v-select :items="machines.map(machine => machine._id)" v-model="selectedMachine"></v-select>
         </v-card-title>
         <v-card-text>
           <v-container fluid>
@@ -88,7 +88,7 @@
             <template slot="items" slot-scope="props">
               <td>[[ props.item.mem ]]</td>
               <td>[[ props.item.util ]]</td>
-              <td>[[ props.item.command ]]</td>
+              <td>[[ props.item.cmd ]]</td>
             </template>
           </v-data-table>
         </v-card-text>
@@ -126,7 +126,7 @@
             headers: [
                 {text: 'Memory', value: 'mem'},
                 {text: 'Utilization', value: 'util'},
-                {text: 'Command', value: 'command'}
+                {text: 'Command', value: 'cmd'}
             ],
             search: ''
         },
@@ -181,30 +181,26 @@
                 this.generatedCommands = commands.join('\n')
             },
             submitCommands: function() {
-                axios.post('/dashboard', {commands: this.generatedCommands.trim() + '\n', machineName: this.selectedMachine})
+                let commands = this.generatedCommands.trim().split('\n').map(command => {
+                    let splits = command.split('|')
+                    return {machine: this.selectedMachine, mem: parseInt(splits[0]), util: parseInt(splits[1]), cmd: splits[2]}
+                })
+
+                axios.post('/dashboard', {commands: commands})
                 this.generatedCommands = ''
             },
             getMachines: function() {
                 axios.get('/data/machines').then((response) => {
-                  this.machines = response.data
-                  this.selectedMachine = this.machines[0].name
-              })
+                    this.machines = response.data
+                    this.selectedMachine = this.machines[0]._id
+                })
             },
             getJobs: function() {
                 if (this.selectedMachine) {
-                    console.log({machine: this.machines.filter(machine => machine.name === this.selectedMachine)[0]})
-                    axios.post('/data/jobs', {machine: this.machines.filter(machine => machine.name === this.selectedMachine)[0]}).then((response) => {
-                    let jobs = response.data
-                    this.jobs = []
-                    for (let job of jobs) {
-                        job = job.split('|')
-                        this.jobs.push({
-                            mem: job[0],
-                            util: job[1],
-                            command: job[2]
-                        })
-                    }
-                })
+                    axios.post('/data/jobs', {machine: this.machines.filter(machine => machine._id === this.selectedMachine)[0]})
+                      .then((response) => {
+                          this.jobs = response.data
+                      })
                 }
             },
             getGPUUsage: function() {

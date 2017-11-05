@@ -66,9 +66,7 @@ def logout():
 @is_logged_in
 def dashboard():
     if request.method == 'POST':
-        json = request.get_json()
-        with open(get_abs_path(f"{jobs_fname}_{json['machineName']}"), 'a+') as f:
-            f.write(json['commands'])
+        db.jobs.insert_many(request.get_json()['commands'])
         return ''
     else:
         return render_template('dashboard.html')
@@ -111,12 +109,7 @@ def gpu():
 @is_logged_in
 def jobs():
     machine = request.get_json()['machine']
-    try:
-        with open(get_abs_path(f"{jobs_fname}_{machine['name']}")) as f:
-            jobs = f.readlines()
-    except FileNotFoundError:
-        jobs = []
-    return jsonify(jobs)
+    return jsonify(list(db.jobs.find({'machine': machine['_id']}, {'_id': False})))
 
 
 @app.route('/data/machines')
