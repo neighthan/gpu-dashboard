@@ -5,7 +5,7 @@ import pickle
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import os
 from getpass import getpass
-import pymongo
+from pymongo import MongoClient
 from gpu_utils import get_gpus
 
 app = Flask(__name__)
@@ -81,21 +81,13 @@ def add_machine():
         json = request.get_json()
         action = json.pop('action')
 
-        try:
-            with open(get_abs_path('machines'), 'rb') as f:
-                machines = pickle.load(f)
-        except FileNotFoundError:
-            machines = []
-
         if action == 'add':
-            machines.append(json)
+            db.machines.insert_one(json)
         else:
             assert action == 'delete'
-            delete_names = [machine['name'] for machine in json['machines']]
-            machines = [machine for machine in machines if machine['name'] not in delete_names]
+            delete_ids = [machine['_id'] for machine in json['machines']]
+            db.machines.remove({'_id': {'$in': delete_ids}})
 
-        with open(get_abs_path('machines'), 'wb') as f:
-            pickle.dump(machines, f)
         return ''
     else:
         return render_template('add_machine.html')
@@ -130,11 +122,7 @@ def jobs():
 @app.route('/data/machines')
 @is_logged_in
 def machines():
-    try:
-        with open(get_abs_path('machines'), 'rb') as f:
-            return jsonify(pickle.load(f))
-    except FileNotFoundError:
-        return '[]'
+    return jsonify(list(db.machines.find()))
 
 
 if __name__ == '__main__':
@@ -189,4 +177,5 @@ if __name__ == '__main__':
     with open(key_fname, 'rb') as f:
         app.secret_key = f.read()
 
+    db = MongoClient().gpu_runner
     app.run(port=args.port)

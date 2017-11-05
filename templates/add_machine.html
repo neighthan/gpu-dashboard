@@ -26,7 +26,7 @@
         <v-card-text>
           <v-container fluid>
             <v-flex xs12>
-              <v-text-field label="Name" v-model="name"></v-text-field>
+              <v-text-field label="Name" v-model="id"></v-text-field>
               <v-text-field label="Address" v-model="address"></v-text-field>
               <v-text-field label="Username" v-model="username"></v-text-field>
               </v-flex>
@@ -48,10 +48,10 @@
           <v-text-field append-icon="search" label="Search" single-line v-model="search"></v-text-field>
         </v-card-title>
         <v-card-text>
-          <v-data-table :headers="headers" :items="machines" :search="search" select-all v-model="selected" item-key="name">
+          <v-data-table :headers="headers" :items="machines" :search="search" select-all v-model="selected" item-key="_id">
             <template slot="items" slot-scope="props">
               <td><v-checkbox v-model="props.selected"></v-checkbox></td>
-              <td>[[ props.item.name ]]</td>
+              <td>[[ props.item._id ]]</td>
               <td>[[ props.item.address ]]</td>
               <td>[[ props.item.username ]]</td>
             </template>
@@ -73,14 +73,14 @@
         el: '#app',
         data: {
             dialog: false,
-            name: '',
+            id: '',
             address: '',
             username: '',
             passwordLocation: '',
             machines: [],
             selected: [],
             headers: [
-                {text: 'Name', value: 'name'},
+                {text: 'Name', value: '_id'},
                 {text: 'Address', value: 'address'},
                 {text: 'Username', value: 'username'}
             ],
@@ -88,9 +88,9 @@
         },
         methods: {
             addMachine: function() {
-                axios.post('/add_machine', {action: 'add', name: this.name, address: this.address, username: this.username})
+                axios.post('/add_machine', {action: 'add', _id: this.id, address: this.address, username: this.username})
                 this.dialog = false
-                this.name = ''
+                this.id = ''
                 this.address = ''
                 this.username = ''
                 setTimeout(this.getMachines, 1000)
