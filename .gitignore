@@ -1,5 +1,6 @@
-web/flask_key
-web/passwords
-web/machines
+flask_key
+passwords
+machines
+.gpu_jobs*
 **/__pycache__
 **/.idea
