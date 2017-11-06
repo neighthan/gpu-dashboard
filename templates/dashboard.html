@@ -36,7 +36,7 @@
         <v-card-title class="mt-3 title">
           New Jobs
           <v-spacer></v-spacer>
-          <v-select :items="machines.map(machine => machine._id)" v-model="selectedMachine"></v-select>
+          <v-select :items="machines.map(machine => machine._id)" v-model="selectedMachine" @click="console.log(selectedMachine)"></v-select>
         </v-card-title>
         <v-card-text>
           <v-container fluid>
@@ -70,9 +70,9 @@
               </v-flex>
             </v-layout>
 
-            <v-btn @click="generateCommands">Generate</v-btn>
+            <v-btn @click="generateCommands()">Generate</v-btn>
             <v-text-field full-width multi-line v-model="generatedCommands"></v-text-field>
-            <v-btn @click="submitCommands">Submit</v-btn>
+            <v-btn @click="submitCommands()">Submit</v-btn>
           </v-container>
         </v-card-text>
       </v-card>
@@ -81,11 +81,14 @@
         <v-card-title class="mt-3 title">
           Jobs Queued
           <v-spacer></v-spacer>
+          <v-btn icon @click="deleteJobs()"><v-icon>delete</v-icon></v-btn>
+          <v-spacer></v-spacer>
           <v-text-field append-icon="search" label="Search" single-line v-model="search"></v-text-field>
         </v-card-title>
         <v-card-text>
-          <v-data-table :headers="headers" :items="jobs" :search="search">
+          <v-data-table :headers="headers" :items="jobs" :search="search" select-all v-model="selectedJobs" item-key="_id">
             <template slot="items" slot-scope="props">
+              <td><v-checkbox v-model="props.selected"></v-checkbox></td>
               <td>[[ props.item.mem ]]</td>
               <td>[[ props.item.util ]]</td>
               <td>[[ props.item.cmd ]]</td>
@@ -123,6 +126,7 @@
             generatedCommands: '',
             gpuUsageByMachine: '',
             jobs: [],
+            selectedJobs: [],
             headers: [
                 {text: 'Memory', value: 'mem'},
                 {text: 'Utilization', value: 'util'},
@@ -141,7 +145,7 @@
                 })
             },
             generateCommands: function() {
-                // make one command with each possible combination of the values of the different variables
+                // make one command with each combination of the values of the different variables
 
                 let n_commands = this.job_vars.map((job_var) => {
                     let values = job_var.values
@@ -186,8 +190,16 @@
                     return {machine: this.selectedMachine, mem: parseInt(splits[0]), util: parseInt(splits[1]), cmd: splits[2]}
                 })
 
-                axios.post('/dashboard', {commands: commands})
+                axios.post('/dashboard', {action: 'add', commands: commands})
                 this.generatedCommands = ''
+            },
+            deleteJobs: function() {
+                let deletedIds = this.selectedJobs.map(job => job._id)
+                axios.post('/dashboard', {action: 'delete', _ids: deletedIds})
+                // remove jobs from current list so that it looks like we update right away after clicking delete
+                // hopefully by the next data refresh, but backend will have finished the deletion and won't show
+                // the deleted jobs again
+                this.jobs = this.jobs.filter(job => !deletedIds.includes(job._id))
             },
             getMachines: function() {
                 axios.get('/data/machines').then((response) => {
@@ -204,7 +216,7 @@
                 }
             },
             getGPUUsage: function() {
-                axios.get('/data/gpu').then((response) => {
+                axios.get('/data/gpus').then((response) => {
                     this.gpuUsageByMachine = response.data
                 })
             },
@@ -215,7 +227,8 @@
         },
         mounted: function() {
             this.getMachines()
-            this.updateData()
+            // wait to update data so that the machines will be loaded and you can get the jobs right away
+            setTimeout(this.updateData, 1000)
 
             setInterval(() => {
                 this.updateData()

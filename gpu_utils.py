@@ -8,9 +8,8 @@ from typing import Sequence, Optional, List
 GPU = namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])  # mem in MiB, util as % not used
 
 
-def nvidia_smi(ssh_command: str='', all_output: bool=False) -> str:
+def nvidia_smi(all_output: bool=False) -> str:
     """
-    :param ssh_command: command to run before nvidia-smi to ssh into another machine
     :param all_output: whether to return all output from nvidia-smi. If true, `nvidia-smi` (no flags) is run. Otherwise,
                        `nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv` is run.
                        This results in a format that is easier to parse to get memory and utilization information, but
@@ -21,19 +20,19 @@ def nvidia_smi(ssh_command: str='', all_output: bool=False) -> str:
     smi_command = 'nvidia-smi'
     if not all_output:
         smi_command += ' --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv'
-    return run(f'{ssh_command} {smi_command}'.split(' '), stdout=PIPE).stdout.decode()
+    return run(smi_command.split(' '), stdout=PIPE).stdout.decode()
 
 
-def get_gpus(skip_gpus: Sequence[int]=(), ssh_command: str='', keep_all: bool=False) -> List[GPU]:
+def get_gpus(skip_gpus: Sequence[int]=(), info_string: str='', keep_all: bool=False) -> List[GPU]:
     """
     :param skip_gpus: which GPUs not to include in the list
-    :param ssh_command: command to run before nvidia-smi to ssh into another machine
     :param keep_all: whether to keep all GPUs in the returned list, even those that don't support utilization
                      util_free and util_used will be None for such GPUs if they're kept
     :returns: a list of namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])
     """
 
-    info_string = nvidia_smi(ssh_command)
+    if not info_string:
+        info_string = nvidia_smi()
 
     gpus = []
     for line in info_string.strip().split('\n')[1:]:  # 0 has headers

@@ -6,7 +6,9 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import os
 from getpass import getpass
 from pymongo import MongoClient
+from bson import ObjectId
 from gpu_utils import get_gpus
+from ssh import SSHConnection, SSHBackgroundConnection
 
 app = Flask(__name__)
 jobs_fname = '.gpu_jobs'
@@ -66,7 +68,15 @@ def logout():
 @is_logged_in
 def dashboard():
     if request.method == 'POST':
-        db.jobs.insert_many(request.get_json()['commands'])
+        json = request.get_json()
+        action = json['action']
+
+        if action == 'add':
+            gpu_runner_db.jobs.insert_many(json()['commands'])
+        else:
+            assert action == 'delete'
+            delete_ids = [ObjectId(_id) for _id in json['_ids']]
+            gpu_runner_db.jobs.remove({'_id': {'$in': delete_ids}})
         return ''
     else:
         return render_template('dashboard.html')
@@ -80,42 +90,54 @@ def add_machine():
         action = json.pop('action')
 
         if action == 'add':
-            db.machines.insert_one(json)
+            gpu_runner_db.machines.insert_one(json)
+
+            # add to current machines / connections
+            machines.append(json)
+            ssh_clients.update({json['_id']: SSHConnection(json['address'], json['username'], ssh_password, auto_add_host=True)})
+            ssh_clients[json['_id']].start_shell()
         else:
             assert action == 'delete'
             delete_ids = [machine['_id'] for machine in json['machines']]
-            db.machines.remove({'_id': {'$in': delete_ids}})
+            gpu_runner_db.machines.remove({'_id': {'$in': delete_ids}})
+
+            # also remove these machines from the current list of machines / connections
+            for machine in json['machines']:
+                machines.remove(machine)
+                client = ssh_clients.pop(machine['_id'])
+                client.close()
 
         return ''
     else:
         return render_template('add_machine.html')
 
 
-@app.route('/data/gpu')
+@app.route('/data/gpus')
 @is_logged_in
-def gpu():
+def data_gpus():
     try:
-        with open(get_abs_path('machines'), 'rb') as f:
-            machines = pickle.load(f)
-        gpus = {machine['name']: [gpu._asdict() for gpu in
-                                  get_gpus(ssh_command=f"sshpass -p {ssh_password} ssh {machine['username']}@{machine['address']}")]
+        smi_command = 'nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv'
+        gpus = {machine['_id']: [gpu._asdict() for gpu in get_gpus(info_string=ssh_clients[machine['_id']].execute(smi_command))]
                 for machine in machines}
-    except FileNotFoundError:  # nvidia-smi or machines not found
+    except FileNotFoundError:  # nvidia-smi not found
         gpus = {}
     return jsonify(gpus)
 
 
 @app.route('/data/jobs', methods=['POST'])  # because we need to send data (the machine name)
 @is_logged_in
-def jobs():
+def data_jobs():
     machine = request.get_json()['machine']
-    return jsonify(list(db.jobs.find({'machine': machine['_id']}, {'_id': False})))
+    jobs = list(gpu_runner_db.jobs.find({'machine': machine['_id']}))
+    for job in jobs:
+        job['_id'] = str(job['_id'])  # convert object id to string so we can jsonify
+    return jsonify(jobs)
 
 
 @app.route('/data/machines')
 @is_logged_in
-def machines():
-    return jsonify(list(db.machines.find()))
+def data_machines():
+    return jsonify(machines)
 
 
 if __name__ == '__main__':
@@ -170,5 +192,12 @@ if __name__ == '__main__':
     with open(key_fname, 'rb') as f:
         app.secret_key = f.read()
 
-    db = MongoClient().gpu_runner
+    client = MongoClient()
+    gpu_runner_db = client.gpu_runner
+
+    machines = list(gpu_runner_db.machines.find())
+    ssh_clients = {machine['_id']: SSHConnection(machine['address'], machine['username'], ssh_password, auto_add_host=True) for machine in machines}
+    for client in ssh_clients.values():
+        client.start_shell()
+
     app.run(port=args.port)
