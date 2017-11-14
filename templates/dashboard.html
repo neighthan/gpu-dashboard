@@ -36,7 +36,9 @@
         <v-card-title class="mt-3 title">
           New Jobs
           <v-spacer></v-spacer>
-          <v-select :items="machines.map(machine => machine._id)" v-model="selectedMachine" @click="console.log(selectedMachine)"></v-select>
+          <v-switch :label="`GPU Runner ${gpuRunnerStatus}`" v-model="gpuRunnerOn"></v-switch>
+          <v-spacer></v-spacer>
+          <v-select :items="machines.map(machine => machine._id)" v-model="selectedMachine" @input="switchedMachine()"></v-select>
         </v-card-title>
         <v-card-text>
           <v-container fluid>
@@ -112,6 +114,7 @@
     const vue = new Vue({
         el: '#app',
         data: {
+            gpuRunnerOn: false,
             machines: [],
             selectedMachine: '',
             job_vars: [
@@ -134,7 +137,15 @@
             ],
             search: ''
         },
+        computed: {
+            gpuRunnerStatus: function() {
+                return this.gpuRunnerOn ? 'ON' : 'OFF'
+            }
+        },
         methods: {
+            switchedMachine: function() {
+                console.log(this.selectedMachine)
+            },
             removeVar: function() {
                 this.job_vars.pop()
             },
