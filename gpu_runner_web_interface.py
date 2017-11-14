@@ -7,18 +7,47 @@ import os
 from time import time, sleep
 from getpass import getpass
 from pymongo import MongoClient
-from bson import ObjectId
+from bson import ObjectId, BSON
 from collections import namedtuple
-from threading import Thread
+from threading import Thread, Lock
 from gpu_utils import get_gpus, GPU
-from ssh import SSHLoggingConnection
-from typing import Dict, Sequence, Optional
+from ssh import SSHConnection
+from typing import Dict, Sequence, Any
 
 app = Flask(__name__)
-jobs_fname = '.gpu_jobs'
-log_start_tag = '<RN>'
-log_end_tag = '</RN>'
-smi_command = 'nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv'
+_jobs_fname = '.gpu_jobs'
+_smi_command = 'nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv'
+
+_Process = namedtuple('NewProcess', ['command', 'gpu_num', 'mem_needed', 'util_needed', 'timestamp'])
+
+
+class Machine(object):
+    def __init__(self, _id: str, address: str, username: str, log_collection, ssh_password: str, skip_gpus: Sequence[int]=(),
+                 log_dir: str='~/.logs', gpu_runner_on: bool=False):
+        self._id = _id
+        self.address = address
+        self.username = username
+        self.gpu_runner_on = True
+        self.log_dir = log_dir
+        self.log_collection = log_collection
+        self.skip_gpus = skip_gpus
+        self.new_processes = []
+        self._client = SSHConnection(self.address, self.username, ssh_password, auto_add_host=True)
+        self._client_lock = Lock()
+
+    def dashboard_data(self) -> Dict[str, Any]:
+        return {'_id': self._id, 'address': self.address, 'username': self.username}
+
+    def execute(self, command: str, codec: str='utf-8') -> str:
+        """
+        Runs `command` using the SSHConnection for this Machine and returns stdout
+        :param command: *single-line* command to run
+        :param codec: codec to use to decode the standard output from running `command`
+        :returns: decoded stdout
+        """
+
+        with self._client_lock:
+            return self._client.execute(command, codec)
 
 
 def get_abs_path(relative_path: str) -> str:
@@ -100,12 +129,7 @@ def add_machine():
             gpu_runner_db.machines.insert_one(json)
 
             # add to current machines / connections
-            machines.append(json)
-            ssh_clients.update({json['_id']: SSHConnection(json['address'], json['username'], ssh_password, auto_add_host=True)})
-            ssh_background_clients.update({json['_id']: SSHBackgroundConnection(json['address'], json['username'], ssh_password,
-                                                                                log_start_tag, log_end_tag, auto_add_host=True)})
-            ssh_clients[json['_id']].start_shell()
-            ssh_background_clients[json['_id']].start_shell()
+            machines.update({json['_id']: Machine(log_collection=gpu_runner_db.runs, **json)})
         else:
             assert action == 'delete'
             delete_ids = [machine['_id'] for machine in json['machines']]
@@ -113,11 +137,7 @@ def add_machine():
 
             # also remove these machines from the current list of machines / connections
             for machine in json['machines']:
-                machines.remove(machine)
-                client = ssh_clients.pop(machine['_id'])
-                client.close()
-                client = ssh_background_clients.pop(machine['_id'])
-                client.close()
+                machines.pop(machine['_id'])
         return ''
     else:
         return render_template('add_machine.html')
@@ -127,8 +147,8 @@ def add_machine():
 @is_logged_in
 def data_gpus():
     try:
-        gpus = {machine['_id']: [gpu._asdict() for gpu in get_gpus(info_string=ssh_clients[machine['_id']].execute(smi_command))]
-                for machine in machines}
+        gpus = {machine._id: [gpu._asdict() for gpu in get_gpus(info_string=machine.execute(_smi_command))]
+                for machine in machines.values()}
     except FileNotFoundError:  # nvidia-smi not found
         gpus = {}
     return jsonify(gpus)
@@ -137,8 +157,8 @@ def data_gpus():
 @app.route('/data/jobs', methods=['POST'])  # because we need to send data (the machine name)
 @is_logged_in
 def data_jobs():
-    machine = request.get_json()['machine']
-    jobs = list(gpu_runner_db.jobs.find({'machine': machine['_id']}))
+    json = request.get_json()['machine']
+    jobs = list(gpu_runner_db.jobs.find({'machine': json['_id']}))
     for job in jobs:
         job['_id'] = str(job['_id'])  # convert object id to string so we can jsonify
     return jsonify(jobs)
@@ -147,97 +167,92 @@ def data_jobs():
 @app.route('/data/machines')
 @is_logged_in
 def data_machines():
-    return jsonify(machines)
+    return jsonify([machine.dashboard_data() for machine in machines.values()])
 
 
-def start_jobs(skip_gpus: Optional[Dict[str, Sequence[int]]]=None, n_passes: int=2, keep_time: int=120, sleep_time: int=60):
-    Process = namedtuple('NewProcess', ['command', 'gpu_num', 'mem_needed', 'util_needed', 'timestamp'])
-    new_processes = {machine['_id']: [] for machine in machines}
-    if not skip_gpus:
-        skip_gpus = {machine['_id']: [] for machine in machines}
+def start_jobs(machine: Machine, n_passes: int=2, keep_time: int=120):
+    while True:  # place jobs for this machine until you can't place any more
+        job = gpu_runner_db.jobs.find_one({'machine': machine._id}, sort=[('util', 1)])
+        if not job:  # no more queued jobs for this machine
+            break
 
-    while True:
-        for machine in machines:
-            while True:  # place jobs for this machine until you can't place any more
-                job = gpu_runner_db.jobs.find_one({'machine': machine['_id']}, sort=[('util', 1)])
-                app.logger.error(str(job))
-                if not job:  # no more queued jobs for this machine
-                    break
+        # check if there's a gpu you can run this job on (enough memory and util free)
+        gpus = {}
+        processes = machine.new_processes
 
-                # check if there's a gpu you can run this job on (enough memory and util free)
-                gpus = {}
-                processes = new_processes[machine['_id']]
-
-                for _ in range(n_passes):
-                    for gpu in get_gpus(skip_gpus[machine['_id']], info_string=ssh_clients[machine['_id']].execute(smi_command)):
-                        try:
-                            gpus[gpu.num].append(gpu)
-                        except KeyError:
-                            gpus[gpu.num] = [gpu]
-
-                # remove processes that have shown up on the GPU
-                # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
-                info_string = ssh_clients[machine['_id']].execute('nvidia-smi')
-                now = time()
-                processes = [process for process in processes if process.command not in info_string and now - process.timestamp < keep_time]
-
-                # subtract mem and util used by new processes from that which is shown to be free
-                mem_newly_used = {gpu_num: 0 for gpu_num in gpus}
-                util_newly_used = {gpu_num: 0 for gpu_num in gpus}
-                for process in processes:
-                    mem_newly_used[process.gpu_num] += process.mem_needed
-                    util_newly_used[process.gpu_num] += process.util_needed
-
-                # set mem_free to max from each pass, util_free to mean
-                gpus = [GPU(num=num,
-                            mem_free=max([gpu.mem_free for gpu in gpu_list]) - mem_newly_used[num],
-                            util_free=sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[num],
-                            mem_used=None,  # don't need mem/util used now
-                            util_used=None)
-                        for (num, gpu_list) in gpus.items()]
-
-                gpus = [gpu for gpu in gpus if gpu.mem_free >= job['mem'] and gpu.util_free >= job['util']]
-
+        for _ in range(n_passes):
+            for gpu in get_gpus(machine.skip_gpus, info_string=machine.execute(_smi_command)):
                 try:
-                    best_gpu = max(gpus, key=lambda gpu: gpu.util_free)
-                except ValueError:  # max gets no gpus because none have enough mem_free and util_free
-                    break  # can't place anything on this machine; move to next one
+                    gpus[gpu.num].append(gpu)
+                except KeyError:
+                    gpus[gpu.num] = [gpu]
 
-                job_cmd = job['cmd'].format(best_gpu.num)
-                app.logger.error(f"{machine['_id']}: {job_cmd}")
-                ssh_background_clients[machine['_id']].execute(f'{job_cmd} &')  # make sure to background the script
+        # remove processes that have shown up on the GPU
+        # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
+        info_string = machine.execute('nvidia-smi')
+        now = time()
+        processes = [process for process in processes if process.command not in info_string and now - process.timestamp < keep_time]
 
-                processes.append(Process(job_cmd, best_gpu.num, mem_needed=job['mem'], util_needed=job['util'], timestamp=time()))
-                new_processes[machine['_id']] = processes
+        # subtract mem and util used by new processes from that which is shown to be free
+        mem_newly_used = {gpu_num: 0 for gpu_num in gpus}
+        util_newly_used = {gpu_num: 0 for gpu_num in gpus}
+        for process in processes:
+            mem_newly_used[process.gpu_num] += process.mem_needed
+            util_newly_used[process.gpu_num] += process.util_needed
 
-                # this job is running, so remove it from the list
-                gpu_runner_db.jobs.remove({'_id': job['_id']})
+        # set mem_free to max from each pass, util_free to mean
+        gpus = [GPU(num=num,
+                    mem_free=max([gpu.mem_free for gpu in gpu_list]) - mem_newly_used[num],
+                    util_free=sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[num],
+                    mem_used=None,  # don't need mem/util used now
+                    util_used=None)
+                for (num, gpu_list) in gpus.items()]
+
+        gpus = [gpu for gpu in gpus if gpu.mem_free >= job['mem'] and gpu.util_free >= job['util']]
+
+        try:
+            best_gpu = max(gpus, key=lambda gpu: gpu.util_free)
+        except ValueError:  # max gets no gpus because none have enough mem_free and util_free
+            break  # can't place anything on this machine
+
+        job_cmd = job['cmd'].format(best_gpu.num)
+        app.logger.info(f"Starting job: {job_cmd} ({machine._id})")
+        machine.execute(f'({job_cmd} >> ~/.gpu_log 2>&1 &)')  # make sure to background the script
+
+        processes.append(_Process(job_cmd, best_gpu.num, mem_needed=job['mem'], util_needed=job['util'], timestamp=time()))
+        machine.new_processes = processes
+
+        # this job is running, so remove it from the list
+        gpu_runner_db.jobs.remove({'_id': job['_id']})
+
+
+def process_logs(machine: Machine, log_keep_time: int=6 * 3600):
+    log_files = machine.execute(f"\\ls {machine.log_dir}").split()
+    for log_file in log_files:
+        log_file = os.path.join(machine.log_dir, log_file)
+        app.logger.info(f"Reading from log file: {log_file} ({machine._id})")
+        # use awk instead of cat because it adds a newline at the end of the file
+        log_data = BSON.decode(machine.execute(f"awk 1 {log_file}", codec='latin-1').encode('latin-1').strip())
+
+        # try:
+        machine.log_collection.update_one({'_id': log_data['_id']}, {'$set': log_data}, upsert=True)
+        # except:
+
+        # remove the file if it's too old
+        if time() - int(machine.execute(f"date +%s -r {log_file}")) > log_keep_time:
+            machine.execute(f"rm {log_file}")
+
+
+def handle_machine(machine: Machine, sleep_time: int=30):
+    machine.execute(f"mkdir -p {machine.log_dir}")  # so we don't run into errors trying to ls this
+    while True:
+        process_logs(machine)
+        if machine.gpu_runner_on:
+            start_jobs(machine)
         sleep(sleep_time)
 
 
-def log_line(line: str) -> None:
-    """
-    :param line: should be a latin-1 decoded byte string dumped by pickle from a dictionary, surrounded with
-                 log_start_tag and log_end_tag
-    """
-
-    app.logger.error(f'Logging! {len(line)}')
-    line = line.replace(log_start_tag, '').replace(log_end_tag, '')
-    gpu_runner_db.runs.insert_one(pickle.loads(line.encode('latin-1')))
-
-
-if __name__ == '__main__':
-    parser = ArgumentParser(description="", formatter_class=RawDescriptionHelpFormatter)
-    parser.add_argument('-p', '--port', help="Which port to run on [default = 5000]", default=5000, type=int)
-    parser.add_argument('-d', '--debug', help="Flag: whether to turn on debug mode", action='store_true')
-
-    args = parser.parse_args()
-    app.config.update({'DEBUG': args.debug})
-
-    key_fname = get_abs_path('flask_key')
-    passwords_fname = get_abs_path('passwords')
-
-    # setup on first time use
+def first_time_setup():
     if not os.path.isfile(key_fname):
         from os import urandom, chmod
         with open(key_fname, 'wb') as f:
@@ -245,6 +260,7 @@ if __name__ == '__main__':
         chmod(key_fname, 0o600)
 
     if not os.path.isfile(passwords_fname):
+        from os import urandom, chmod
         username = input('Create a username: ')
         while True:
             password = getpass('Create a password: ')
@@ -260,6 +276,22 @@ if __name__ == '__main__':
             del password_confirmation
         chmod(passwords_fname, 0o600)
 
+
+if __name__ == '__main__':
+    parser = ArgumentParser(description="", formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument('-p', '--port', help="Which port to run on [default = 5000]", default=5000, type=int)
+    parser.add_argument('-d', '--debug', help="Flag: whether to turn on debug mode", action='store_true')
+    parser.add_argument('-l', '--log_level', help='[default = ERROR]', default='ERROR')
+
+    args = parser.parse_args()
+    app.logger.setLevel(args.log_level.upper())
+    app.config.update({'DEBUG': args.debug})
+
+    key_fname = get_abs_path('flask_key')
+    passwords_fname = get_abs_path('passwords')
+
+    first_time_setup()
+
     ssh_password = getpass('Enter your SSH password: ')
 
     with open(key_fname, 'rb') as f:
@@ -268,19 +300,12 @@ if __name__ == '__main__':
     mongo_client = MongoClient()
     gpu_runner_db = mongo_client.gpu_runner
 
-    machines = list(gpu_runner_db.machines.find())
+    machines = {machine['_id']: Machine(log_collection=gpu_runner_db.runs, ssh_password=ssh_password, **machine)
+                for machine in gpu_runner_db.machines.find()}
+    app.logger.info(f"Established connections to machines: {', '.join(machines.keys())}")
 
-    ssh_clients = {}
-    # ssh_background_clients = {}
-    for machine in machines:
-        # client = SSHConnection(machine['address'], machine['username'], ssh_password, auto_add_host=True)
-        # client.start_shell()
-        # ssh_clients[machine['_id']] = client
-
-        client = SSHLoggingConnection(machine['address'], machine['username'], ssh_password, gpu_runner_db.runs, '/cluster/nhunt/.logs', auto_add_host=True)
-        ssh_clients[machine['_id']] = client
-
-    # thread = Thread(target=start_jobs, daemon=True)
-    # thread.start()
+    for machine in machines.values():
+        thread = Thread(target=lambda: handle_machine(machine), daemon=True)
+        thread.start()
 
     app.run(port=args.port)

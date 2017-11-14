@@ -1,4 +1,3 @@
-import re
 from collections import namedtuple
 from subprocess import run, PIPE
 import os
@@ -26,6 +25,7 @@ def nvidia_smi(all_output: bool=False) -> str:
 def get_gpus(skip_gpus: Sequence[int]=(), info_string: str='', keep_all: bool=False) -> List[GPU]:
     """
     :param skip_gpus: which GPUs not to include in the list
+    :param info_string: info from nvidia-smi; if not given, this is generated
     :param keep_all: whether to keep all GPUs in the returned list, even those that don't support utilization
                      util_free and util_used will be None for such GPUs if they're kept
     :returns: a list of namedtuple('GPU', ['num', 'mem_used', 'mem_free', 'util_used', 'util_free'])
