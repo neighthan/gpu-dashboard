@@ -4,14 +4,21 @@ from functools import wraps
 import pickle
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import os
+from time import time, sleep
 from getpass import getpass
 from pymongo import MongoClient
 from bson import ObjectId
-from gpu_utils import get_gpus
-from ssh import SSHConnection, SSHBackgroundConnection
+from collections import namedtuple
+from threading import Thread
+from gpu_utils import get_gpus, GPU
+from ssh import SSHLoggingConnection
+from typing import Dict, Sequence, Optional
 
 app = Flask(__name__)
 jobs_fname = '.gpu_jobs'
+log_start_tag = '<RN>'
+log_end_tag = '</RN>'
+smi_command = 'nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv'
 
 
 def get_abs_path(relative_path: str) -> str:
@@ -72,7 +79,7 @@ def dashboard():
         action = json['action']
 
         if action == 'add':
-            gpu_runner_db.jobs.insert_many(json()['commands'])
+            gpu_runner_db.jobs.insert_many(json['commands'])
         else:
             assert action == 'delete'
             delete_ids = [ObjectId(_id) for _id in json['_ids']]
@@ -95,7 +102,10 @@ def add_machine():
             # add to current machines / connections
             machines.append(json)
             ssh_clients.update({json['_id']: SSHConnection(json['address'], json['username'], ssh_password, auto_add_host=True)})
+            ssh_background_clients.update({json['_id']: SSHBackgroundConnection(json['address'], json['username'], ssh_password,
+                                                                                log_start_tag, log_end_tag, auto_add_host=True)})
             ssh_clients[json['_id']].start_shell()
+            ssh_background_clients[json['_id']].start_shell()
         else:
             assert action == 'delete'
             delete_ids = [machine['_id'] for machine in json['machines']]
@@ -106,7 +116,8 @@ def add_machine():
                 machines.remove(machine)
                 client = ssh_clients.pop(machine['_id'])
                 client.close()
-
+                client = ssh_background_clients.pop(machine['_id'])
+                client.close()
         return ''
     else:
         return render_template('add_machine.html')
@@ -116,7 +127,6 @@ def add_machine():
 @is_logged_in
 def data_gpus():
     try:
-        smi_command = 'nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv'
         gpus = {machine['_id']: [gpu._asdict() for gpu in get_gpus(info_string=ssh_clients[machine['_id']].execute(smi_command))]
                 for machine in machines}
     except FileNotFoundError:  # nvidia-smi not found
@@ -140,26 +150,89 @@ def data_machines():
     return jsonify(machines)
 
 
+def start_jobs(skip_gpus: Optional[Dict[str, Sequence[int]]]=None, n_passes: int=2, keep_time: int=120, sleep_time: int=60):
+    Process = namedtuple('NewProcess', ['command', 'gpu_num', 'mem_needed', 'util_needed', 'timestamp'])
+    new_processes = {machine['_id']: [] for machine in machines}
+    if not skip_gpus:
+        skip_gpus = {machine['_id']: [] for machine in machines}
+
+    while True:
+        for machine in machines:
+            while True:  # place jobs for this machine until you can't place any more
+                job = gpu_runner_db.jobs.find_one({'machine': machine['_id']}, sort=[('util', 1)])
+                app.logger.error(str(job))
+                if not job:  # no more queued jobs for this machine
+                    break
+
+                # check if there's a gpu you can run this job on (enough memory and util free)
+                gpus = {}
+                processes = new_processes[machine['_id']]
+
+                for _ in range(n_passes):
+                    for gpu in get_gpus(skip_gpus[machine['_id']], info_string=ssh_clients[machine['_id']].execute(smi_command)):
+                        try:
+                            gpus[gpu.num].append(gpu)
+                        except KeyError:
+                            gpus[gpu.num] = [gpu]
+
+                # remove processes that have shown up on the GPU
+                # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
+                info_string = ssh_clients[machine['_id']].execute('nvidia-smi')
+                now = time()
+                processes = [process for process in processes if process.command not in info_string and now - process.timestamp < keep_time]
+
+                # subtract mem and util used by new processes from that which is shown to be free
+                mem_newly_used = {gpu_num: 0 for gpu_num in gpus}
+                util_newly_used = {gpu_num: 0 for gpu_num in gpus}
+                for process in processes:
+                    mem_newly_used[process.gpu_num] += process.mem_needed
+                    util_newly_used[process.gpu_num] += process.util_needed
+
+                # set mem_free to max from each pass, util_free to mean
+                gpus = [GPU(num=num,
+                            mem_free=max([gpu.mem_free for gpu in gpu_list]) - mem_newly_used[num],
+                            util_free=sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list) - util_newly_used[num],
+                            mem_used=None,  # don't need mem/util used now
+                            util_used=None)
+                        for (num, gpu_list) in gpus.items()]
+
+                gpus = [gpu for gpu in gpus if gpu.mem_free >= job['mem'] and gpu.util_free >= job['util']]
+
+                try:
+                    best_gpu = max(gpus, key=lambda gpu: gpu.util_free)
+                except ValueError:  # max gets no gpus because none have enough mem_free and util_free
+                    break  # can't place anything on this machine; move to next one
+
+                job_cmd = job['cmd'].format(best_gpu.num)
+                app.logger.error(f"{machine['_id']}: {job_cmd}")
+                ssh_background_clients[machine['_id']].execute(f'{job_cmd} &')  # make sure to background the script
+
+                processes.append(Process(job_cmd, best_gpu.num, mem_needed=job['mem'], util_needed=job['util'], timestamp=time()))
+                new_processes[machine['_id']] = processes
+
+                # this job is running, so remove it from the list
+                gpu_runner_db.jobs.remove({'_id': job['_id']})
+        sleep(sleep_time)
+
+
+def log_line(line: str) -> None:
+    """
+    :param line: should be a latin-1 decoded byte string dumped by pickle from a dictionary, surrounded with
+                 log_start_tag and log_end_tag
+    """
+
+    app.logger.error(f'Logging! {len(line)}')
+    line = line.replace(log_start_tag, '').replace(log_end_tag, '')
+    gpu_runner_db.runs.insert_one(pickle.loads(line.encode('latin-1')))
+
+
 if __name__ == '__main__':
-    parser = ArgumentParser(description="expected format of the job file is (pipe-delimited):\n"
-                                        "mem_free_threshold|util_free_threshold|command_to_run\n"
-                                        "command_to_run should have {} where the device number should be inserted. Ex:\n"
-                                        "4000|30|python my_script.py -flag --other=7 --device={}\n"
-                                        "This will execute the command above once there's a gpu with 4 GB free and that "
-                                        "has at least 30% utilization free. {} will be replaced with the number of the "
-                                        "gpu which the job should use' &' will be added to the commands so that they run "
-                                        "in the background; this shouldn't already be part of the command",
-                            formatter_class=RawDescriptionHelpFormatter)
-    parser.add_argument('-st', '--sleep_time', help="How long, in seconds, to sleep between refreshing GPU info and the "
-                                                    "jobs list. [default = 60]", type=float, default=60)
+    parser = ArgumentParser(description="", formatter_class=RawDescriptionHelpFormatter)
     parser.add_argument('-p', '--port', help="Which port to run on [default = 5000]", default=5000, type=int)
     parser.add_argument('-d', '--debug', help="Flag: whether to turn on debug mode", action='store_true')
 
     args = parser.parse_args()
-    app.config.update(dict(
-        sleep_time  = args.sleep_time,
-        DEBUG       = args.debug
-    ))
+    app.config.update({'DEBUG': args.debug})
 
     key_fname = get_abs_path('flask_key')
     passwords_fname = get_abs_path('passwords')
@@ -192,12 +265,22 @@ if __name__ == '__main__':
     with open(key_fname, 'rb') as f:
         app.secret_key = f.read()
 
-    client = MongoClient()
-    gpu_runner_db = client.gpu_runner
+    mongo_client = MongoClient()
+    gpu_runner_db = mongo_client.gpu_runner
 
     machines = list(gpu_runner_db.machines.find())
-    ssh_clients = {machine['_id']: SSHConnection(machine['address'], machine['username'], ssh_password, auto_add_host=True) for machine in machines}
-    for client in ssh_clients.values():
-        client.start_shell()
+
+    ssh_clients = {}
+    # ssh_background_clients = {}
+    for machine in machines:
+        # client = SSHConnection(machine['address'], machine['username'], ssh_password, auto_add_host=True)
+        # client.start_shell()
+        # ssh_clients[machine['_id']] = client
+
+        client = SSHLoggingConnection(machine['address'], machine['username'], ssh_password, gpu_runner_db.runs, '/cluster/nhunt/.logs', auto_add_host=True)
+        ssh_clients[machine['_id']] = client
+
+    # thread = Thread(target=start_jobs, daemon=True)
+    # thread.start()
 
     app.run(port=args.port)
