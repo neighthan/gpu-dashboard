@@ -36,7 +36,7 @@ class Machine(object):
         self._client_lock = Lock()
 
     def dashboard_data(self) -> Dict[str, Any]:
-        return {'_id': self._id, 'address': self.address, 'username': self.username}
+        return {'_id': self._id, 'address': self.address, 'username': self.username, 'gpu_runner_on': self.gpu_runner_on}
 
     def execute(self, command: str, codec: str='utf-8') -> str:
         """

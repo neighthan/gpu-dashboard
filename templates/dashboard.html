@@ -36,7 +36,7 @@
         <v-card-title class="mt-3 title">
           New Jobs
           <v-spacer></v-spacer>
-          <v-switch :label="`GPU Runner ${gpuRunnerStatus}`" v-model="gpuRunnerOn"></v-switch>
+          <v-switch :label="`GPU Runner ${gpuRunnerStatus}`" v-model="gpuRunnerOn" @input="toggleGPURunner()"></v-switch>
           <v-spacer></v-spacer>
           <v-select :items="machines.map(machine => machine._id)" v-model="selectedMachine" @input="switchedMachine()"></v-select>
         </v-card-title>
@@ -137,14 +137,14 @@
             ],
             search: ''
         },
-        computed: {
-            gpuRunnerStatus: function() {
-                return this.gpuRunnerOn ? 'ON' : 'OFF'
-            }
-        },
         methods: {
+            toggleGPURunner: function() {
+                this.gpuRunnerStatus = this.gpuRunnerOn ? 'ON' : 'OFF'
+                this.machines.filter(machine => machine._id === this.selectedMachine)[0].gpu_runner_on = this.gpuRunnerOn
+            },
             switchedMachine: function() {
-                console.log(this.selectedMachine)
+                this.getJobs()
+                this.gpuRunnerOn = this.machines.filter(machine => machine._id === this.selectedMachine)[0].gpu_runner_on
             },
             removeVar: function() {
                 this.job_vars.pop()
