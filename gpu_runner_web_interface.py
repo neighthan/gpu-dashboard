@@ -28,7 +28,7 @@ class Machine(object):
         self._id = _id
         self.address = address
         self.username = username
-        self.gpu_runner_on = True
+        self.gpu_runner_on = gpu_runner_on
         self.log_dir = log_dir
         self.log_collection = log_collection
         self.skip_gpus = skip_gpus
@@ -142,6 +142,14 @@ def add_machine():
         return ''
     else:
         return render_template('add_machine.html')
+
+
+@app.route('/toggle_gpu_runner', methods=['POST'])
+@is_logged_in
+def toggle_gpu_runner():
+    json = request.get_json()
+    machines[json['machine']].gpu_runner_on = json['gpu_runner_on']
+    return ''
 
 
 @app.route('/data/gpus')
