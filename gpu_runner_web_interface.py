@@ -1,5 +1,6 @@
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from passlib.hash import sha256_crypt
+from urllib.parse import quote_plus
 from functools import wraps
 import pickle
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
@@ -129,7 +130,7 @@ def add_machine():
             gpu_runner_db.machines.insert_one(json)
 
             # add to current machines / connections
-            machines.update({json['_id']: Machine(log_collection=gpu_runner_db.runs, **json)})
+            machines.update({json['_id']: Machine(log_collection=gpu_runner_db.runs, ssh_password=ssh_password, **json)})
         else:
             assert action == 'delete'
             delete_ids = [machine['_id'] for machine in json['machines']]
@@ -297,7 +298,9 @@ if __name__ == '__main__':
     with open(key_fname, 'rb') as f:
         app.secret_key = f.read()
 
-    mongo_client = MongoClient()
+    user = 'web_runner'
+    db_password = getpass('MongoDB web_runner password: ')
+    mongo_client = MongoClient(f'mongodb://{quote_plus(user)}:{quote_plus(db_password)}@localhost/?authSource=gpu_runner')
     gpu_runner_db = mongo_client.gpu_runner
 
     machines = {machine['_id']: Machine(log_collection=gpu_runner_db.runs, ssh_password=ssh_password, **machine)
