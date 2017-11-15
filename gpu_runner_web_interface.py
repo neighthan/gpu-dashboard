@@ -294,7 +294,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     app.logger.setLevel(args.log_level.upper())
-    app.config.update({'DEBUG': args.debug})
+    app.config.update({'DEBUG': args.debug, 'TEMPLATES_AUTO_RELOAD': True})
 
     key_fname = get_abs_path('flask_key')
     passwords_fname = get_abs_path('passwords')
