@@ -241,7 +241,7 @@ def process_logs(machine: Machine, log_keep_time: int=6 * 3600):
         log_file = os.path.join(machine.log_dir, log_file)
         app.logger.info(f"Reading from log file: {log_file} ({machine._id})")
         # use awk instead of cat because it adds a newline at the end of the file
-        log_data = BSON.decode(machine.execute(f"awk 1 {log_file}", codec='latin-1').encode('latin-1').strip())
+        log_data = BSON.decode(machine.execute(f"awk 1 {log_file}", codec='latin-1').strip().replace('\r\n', '\n').encode('latin-1'))
 
         # try:
         machine.log_collection.update_one({'_id': log_data['_id']}, {'$set': log_data}, upsert=True)

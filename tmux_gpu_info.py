@@ -2,7 +2,7 @@
 
 # this can be used to show the memory usage of each GPU in the status bar in tmux
 
-from gpu_utils import get_gpus
+from gpu_dashboard.gpu_utils import get_gpus
 
 gpus = get_gpus()
 

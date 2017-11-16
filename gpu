@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-from gpu_utils import nvidia_smi
+from gpu_dashboard.gpu_utils import nvidia_smi
 from subprocess import run, PIPE
 import re
 
-gpu_info = nvidia_smi()
+gpu_info = nvidia_smi(all_output=True)
 pid_matcher = re.compile("\|\s+\d\s+(\d+)")  # just by inspection; PID lines start "|    gpu_id    pid"
 pids = re.findall(pid_matcher, gpu_info)
 
