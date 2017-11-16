@@ -1,5 +1,6 @@
 import tensorflow as tf
-from gpu_utils import get_best_gpu
+import os
+from gpu_dashboard.gpu_utils import get_best_gpu
 from typing import Optional
 
 def tf_init(device: Optional[int]=None, tf_logging_verbosity: str='1') -> tf.ConfigProto:
