@@ -21,16 +21,21 @@
 
   <main>
     <v-container fluid>
-      <v-layout row>
-        <v-card v-for="(gpuUsage, machine) in gpuUsageByMachine" :key="machine">
-          <v-card-title class="mt-3 title">[[ machine ]]</v-card-title>
-          <v-card-text>
-              <ul v-for="gpu in gpuUsage">
-                <li>GPU [[ gpu.num ]]: [[ gpu.mem_used ]] / [[ gpu.mem_free + gpu.mem_used ]] MiB [[ gpu.util_used ]]%</li>
-              </ul>
-          </v-card-text>
-        </v-card>
-      </v-layout>
+      <v-expansion-panel expand>
+        <v-expansion-panel-content v-for="(gpuUsage, machine) in gpuUsageByMachine" :key="machine">
+          <div slot="header">
+            [[ machine ]]
+            <column-chart :data="chartData[machine]" ytitle="% Used" max="100" height="150px" legend="false"></column-chart>
+          </div>
+          <v-card>
+            <v-card-text>
+                <ul v-for="gpu in gpuUsage">
+                  <li>GPU [[ gpu.num ]]: [[ gpu.mem_used ]] / [[ gpu.mem_free + gpu.mem_used ]] MiB [[ gpu.util_used ]]%</li>
+                </ul>
+            </v-card-text>
+          </v-card>
+        </v-expansion-panel-content>
+      </v-expansion-panel>
 
       <v-card>
         <v-card-title class="mt-3 title">
@@ -101,12 +106,19 @@
     </v-container>
   </main>
 
+  <v-snackbar v-model="showFormattingIssueSnackbar" :color="'error'" :timeout="5000">
+    Command formatting issue! Ensure you use the format mem|util|command.
+  </v-snackbar>
+
   <v-footer color="primary"></v-footer>
 </v-app>
 
 <script src="https://unpkg.com/vue"></script>
-<script src="https://unpkg.com/vuetify/dist/vuetify.js"></script>
 <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script src="https://unpkg.com/vuetify/dist/vuetify.js"></script>
+<script src="https://unpkg.com/chart.js@2.7.1/dist/Chart.bundle.js"></script>
+<script src="https://unpkg.com/chartkick@2.2.4"></script>
+<script src="https://unpkg.com/vue-chartkick@0.2.0/dist/vue-chartkick.js"></script>
 
 <script>
     let refreshDelay = 30000
@@ -136,9 +148,26 @@
                 {text: 'Utilization', value: 'util'},
                 {text: 'Command', value: 'cmd'}
             ],
-            search: ''
+            search: '',
+            showFormattingIssueSnackbar: false,
+            chartData: {}
         },
         methods: {
+            updateChartData: function(gpuUsage) {
+                let chartData = {}
+                for (let machine in this.gpuUsageByMachine) {
+                    let gpuUsage = this.gpuUsageByMachine[machine]
+                    let memData = []
+                    let utilData = []
+                    for (let idx in gpuUsage) {
+                        let gpu = gpuUsage[idx]
+                        memData.push([gpu.num, Math.round(100 * gpu.mem_used / (gpu.mem_free + gpu.mem_used))])
+                        utilData.push([gpu.num, gpu.util_used])
+                    }
+                    chartData[machine] = [{name: 'Util', data: utilData}, {name: 'Memory', data: memData}]
+                }
+                this.chartData = chartData
+            },
             toggleGPURunner: function() {
                 this.gpuRunnerStatus = this.gpuRunnerOn ? 'ON' : 'OFF'
                 this.machines.filter(machine => machine._id === this.selectedMachine)[0].gpu_runner_on = this.gpuRunnerOn
@@ -199,13 +228,22 @@
                 this.generatedCommands = commands.join('\n')
             },
             submitCommands: function() {
+                let validFormatting = true
                 let commands = this.generatedCommands.trim().split('\n').map(command => {
                     let splits = command.split('|')
-                    return {machine: this.selectedMachine, mem: parseInt(splits[0]), util: parseInt(splits[1]), cmd: splits[2]}
+                    let ret = {machine: this.selectedMachine, mem: parseInt(splits[0]), util: parseInt(splits[1]), cmd: splits[2]}
+                    if (typeof ret.mem !== 'number' || typeof ret.util !== 'number' || typeof ret.cmd !== 'string') {
+                        validFormatting = false
+                    }
+                    return ret
                 })
 
-                axios.post('/dashboard', {action: 'add', commands: commands})
-                this.generatedCommands = ''
+                if (validFormatting) {
+                    axios.post('/dashboard', {action: 'add', commands: commands})
+                    this.generatedCommands = ''
+                } else {
+                    this.showFormattingIssueSnackbar = true
+                }
             },
             deleteJobs: function() {
                 let deletedIds = this.selectedJobs.map(job => job._id)
@@ -234,6 +272,7 @@
             getGPUUsage: function() {
                 axios.get('/data/gpus').then((response) => {
                     this.gpuUsageByMachine = response.data
+                    this.updateChartData()
                 })
             },
             updateData: function() {
