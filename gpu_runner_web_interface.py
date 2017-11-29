@@ -179,7 +179,7 @@ def data_machines():
     return jsonify([machine.dashboard_data() for machine in machines.values()])
 
 
-def start_jobs(machine: Machine, n_passes: int=2, keep_time: int=120):
+def start_jobs(machine: Machine, n_passes: int=2, keep_time: int=180):
     while True:  # place jobs for this machine until you can't place any more
         job = gpu_runner_db.jobs.find_one({'machine': machine._id}, sort=[('util', 1)])
         if not job:  # no more queued jobs for this machine
@@ -311,9 +311,14 @@ if __name__ == '__main__':
     mongo_client = MongoClient(f'mongodb://{quote_plus(user)}:{quote_plus(db_password)}@localhost/?authSource=gpu_runner')
     gpu_runner_db = mongo_client.gpu_runner
 
-    machines = {machine['_id']: Machine(log_collection=gpu_runner_db.runs, ssh_password=ssh_password, **machine)
-                for machine in gpu_runner_db.machines.find()}
-    app.logger.info(f"Established connections to machines: {', '.join(machines.keys())}")
+    machines = {}
+    for machine in gpu_runner_db.machines.find():
+        try:
+            machines[machine['_id']] = Machine(log_collection=gpu_runner_db.runs, ssh_password=ssh_password, **machine)
+            app.logger.info(f"Established connections to {machine['_id']}")
+        except:
+            app.logger.error(f"Error establishing connection to {machine['_id']}")
+            continue
 
     for machine in machines.values():
         thread = Thread(target=lambda: handle_machine(machine), daemon=True)
