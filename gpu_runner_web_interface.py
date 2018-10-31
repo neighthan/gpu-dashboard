@@ -85,7 +85,9 @@ def add_machine():
             gpu_runner_db.machines.insert_one(json)
 
             # add to current machines / connections
-            machines.update({json["_id"]: Machine(ssh_password=ssh_password, **json)})
+            machine = Machine(jobs_db=jobs_db, ssh_password=ssh_password, **json)
+            machine.start()
+            machines.update({json["_id"]: machine})
         else:
             assert action == "delete"
             delete_ids = [machine["_id"] for machine in json["machines"]]
@@ -200,12 +202,17 @@ if __name__ == "__main__":
     mongo_client = MongoClient(
         f"mongodb://{quote_plus(user)}:{quote_plus(db_password)}@localhost/?authSource=gpu_runner"
     )
+    del db_password
+
     gpu_runner_db = mongo_client.gpu_runner
+    jobs_db = gpu_runner_db.jobs
 
     machines = {}
     for machine in gpu_runner_db.machines.find():
         try:
-            machines[machine["_id"]] = Machine(ssh_password=ssh_password, **machine)
+            machines[machine["_id"]] = Machine(
+                jobs_db=jobs_db, ssh_password=ssh_password, **machine
+            )
             app.logger.info(f"Established connection to {machine['_id']}")
         except:
             app.logger.error(f"Error establishing connection to {machine['_id']}")
