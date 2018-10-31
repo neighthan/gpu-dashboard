@@ -85,7 +85,9 @@ def add_machine():
             gpu_runner_db.machines.insert_one(json)
 
             # add to current machines / connections
-            machine = Machine(jobs_db=jobs_db, ssh_password=ssh_password, **json)
+            machine = Machine(
+                app=app, jobs_db=jobs_db, ssh_password=ssh_password, **json
+            )
             machine.start()
             machines.update({json["_id"]: machine})
         else:
@@ -211,7 +213,7 @@ if __name__ == "__main__":
     for machine in gpu_runner_db.machines.find():
         try:
             machines[machine["_id"]] = Machine(
-                jobs_db=jobs_db, ssh_password=ssh_password, **machine
+                app=app, jobs_db=jobs_db, ssh_password=ssh_password, **machine
             )
             app.logger.info(f"Established connection to {machine['_id']}")
         except:

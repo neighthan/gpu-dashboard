@@ -24,6 +24,7 @@ class Machine:
         jobs_db,
         skip_gpus: Sequence[int] = (),
         gpu_runner_on: bool = False,
+        app=None,
     ):
         self._id = _id
         self.address = address
@@ -31,6 +32,7 @@ class Machine:
         self.jobs_db = jobs_db
         self.skip_gpus = skip_gpus
         self.gpu_runner_on = gpu_runner_on
+        self.app = app
         self.new_processes = []
         self._client = SSHConnection(
             self.address, self.username, ssh_password, auto_add_host=True
@@ -140,10 +142,14 @@ class Machine:
                 break  # can't place anything on this machine
 
             job_cmd = job["cmd"].format(best_gpu.num)
-            # app.logger.info(f"Starting job: {job_cmd} ({self._id})")
-            self.execute(
-                f"({job_cmd} >> ~/.gpu_log 2>&1 &)"
-            )  # make sure to background the script
+
+            if self.app:
+                self.app.logger.info(f"Starting job: {job_cmd} ({self._id})")
+
+            # make sure to background the script
+            # surrounding w/ () executes in a subshell so "Done ..."
+            # isn't printed when the job finishes
+            output = self.execute(f"({job_cmd} >> ~/.gpu_log 2>&1 &)")
 
             processes.append(
                 _Process(
