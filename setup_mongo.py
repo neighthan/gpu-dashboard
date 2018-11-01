@@ -38,11 +38,12 @@ def install_mongo(mongo_url: str, install_dir: str, db_dir: str):
     os.makedirs(install_dir, exist_ok=True)
     os.makedirs(db_dir, exist_ok=True)
 
-    mongo_dir = mongo_url.replace(".tgz", "")
+    mongo_fname = mongo_url.split("/")[-1]
+    mongo_dir = mongo_fname.replace(".tgz", "")
     commands = [
         f"wget {mongo_url}",
-        f"tar -xzf {mongo_url}",
-        f"rm {mongo_url}",
+        f"tar -xzf {mongo_fname}",
+        f"rm {mongo_fname}",
         f"mv {mongo_dir}/* {install_dir}",
         f"rm -r {mongo_dir}",
     ]
