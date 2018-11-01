@@ -2,7 +2,6 @@ from pymongo import MongoClient
 from getpass import getpass
 from argparse import ArgumentParser
 import os
-from subprocess import run
 
 
 def main():
@@ -48,14 +47,13 @@ def install_mongo(mongo_url: str, install_dir: str, db_dir: str):
         f"rm -r {mongo_dir}",
     ]
 
-    for command in commands:
-        run(command.split(" "))
+    os.system(" && ".join(commands))
 
 
 def setup_users(db_dir: str, port: int):
     input(
-        f"Run `mongod --dbpath {db_dir}` --port {port} --directoryperdb --journal --noprealloc --smallfiles`"
-        "in another window, then press enter. (you can ignore all of the flags after port; this is just what I use.)"
+        f"Run `mongod --dbpath {db_dir} --port {port} --directoryperdb --journal --noprealloc --smallfiles`"
+        " in another window, then press enter. (you can ignore all of the flags after port; this is just what I use.)"
     )
 
     admin_pwd = getpass("Enter admin password:")
