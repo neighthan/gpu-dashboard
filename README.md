@@ -24,15 +24,15 @@ Commands should
 
 (see below for details on [installation](#installation) and [first time setup](#setup))
 
-```bash
-mongod --auth --dbpath mongodb --bind_ip 127.0.0.1
-```
+After starting your MongoDB server, run
 
 ```bash
 python gpu_runner_web_interface.py
 ```
 
 # Installation
+
+Run the `setup_mongo.py` script to handle installation + setup of MongoDB automatically. This just helps you run the steps shown in the section below (assuming `sudo`-less installation) more efficiently but will only work on Linux. If you need more control or are using another OS, use the examples below to set things up.
 
 ## GPU Dashboard
 
