@@ -181,6 +181,13 @@ if __name__ == "__main__":
         type=int,
     )
     parser.add_argument(
+        "-mp",
+        "--mongo_port",
+        type=int,
+        default=27010,
+        help="Port where MongoDB server is running.",
+    )
+    parser.add_argument(
         "-d", "--debug", help="Flag: whether to turn on debug mode", action="store_true"
     )
     parser.add_argument("-l", "--log_level", help="[default = ERROR]", default="ERROR")
@@ -202,7 +209,7 @@ if __name__ == "__main__":
     user = "web_runner"
     db_password = getpass("MongoDB web_runner password: ")
     mongo_client = MongoClient(
-        f"mongodb://{quote_plus(user)}:{quote_plus(db_password)}@localhost/?authSource=gpu_runner"
+        f"mongodb://{quote_plus(user)}:{quote_plus(db_password)}@localhost:{args.mongo_port}/?authSource=gpu_runner"
     )
     del db_password
 
