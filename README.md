@@ -42,12 +42,34 @@ TODO
 
 Follow the instructions [here][mongo_install] to install MongoDB. In short:
 
+**With `sudo`**
+
 ```bash
 # add MongoDB GPG key
 sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 9DA31620334BD75D9DCB49F368818C72E52529D4
 echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/4.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.0.list
 sudo apt-get update
 sudo apt-get install -y mongodb-org # latest version
+```
+
+**Without `sudo`**
+
+```bash
+# update this when a new version is available or for different systems
+# https://www.mongodb.com/download-center/community
+mongo_fname=mongodb-linux-x86_64-ubuntu1604-4.0.3
+
+# update this to whatever you like
+install_dir=$HOME/mongo
+
+mkdir -p $install_dir
+
+wget https://fastdl.mongodb.org/linux/$mongo_fname.tgz
+tar -xzf $mongo_fname.tgz
+mv $mongo_fname/* $install_dir
+rm -r $mongo_fname
+rm $mongo_fname.tgz
+echo "Make sure to add $install_dir/bin to your path!"
 ```
 
 Make sure to also set up whatever directories you'll use to store you databases.
