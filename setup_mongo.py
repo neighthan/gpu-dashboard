@@ -7,14 +7,14 @@ from subprocess import run
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument("port", type=int, default=27010)
+    parser.add_argument("--port", type=int, default=27010)
     parser.add_argument(
-        "mongo_url",
+        "--mongo_url",
         default="https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-4.0.3.tgz",
         help="Update this when a new version is available; check https://www.mongodb.com/download-center/community.",
     )
-    parser.add_argument("install_dir", default="", help="[default = $HOME/mongo]")
-    parser.add_argument("db_dir", default="", help="[default = $install_dir/db]")
+    parser.add_argument("--install_dir", default="", help="[default = $HOME/mongo]")
+    parser.add_argument("--db_dir", default="", help="[default = $install_dir/db]")
 
     args = parser.parse_args()
     install_dir = args.install_dir or os.environ["HOME"] + "/mongo"
