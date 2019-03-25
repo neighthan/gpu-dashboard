@@ -2,12 +2,10 @@ import paramiko
 from time import sleep
 
 
-class SSHConnection(object):
+class SSHConnection:
     """
     Mostly taken from https://daanlenaerts.com/blog/2016/07/01/python-and-ssh-paramiko-shell/
-    Differs from SSHBackgroundConnection in that, after running a command, it will collect all of the output until the prompt returns
-    then return that. This should be used when you want a full response to a command. For commands that will run in the
-    background or where you only want to filter out certain elements, consider SSHBackgroundConnection instead.
+    After running a command it will collect all of the output until the prompt returns then return that.
     """
 
     def __init__(self, address: str, username: str, password: str, auto_add_host: bool=False):
@@ -49,6 +47,7 @@ class SSHConnection(object):
             if self.shell.recv_ready():
                 while self.shell.recv_ready():
                     output += self.shell.recv(1024).decode(codec)
+                    # note that this could lead to false positives... (and negatives?)
                     command_finished = output.endswith('$ ')
             else:
                 sleep(0.5)
