@@ -1,16 +1,16 @@
-from flask import Flask, render_template, jsonify, request, session, redirect, url_for
-from passlib.hash import sha256_crypt
-from urllib.parse import quote_plus
-from functools import wraps
+import os
 import pickle
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-import os
+from functools import wraps
 from getpass import getpass
-from pymongo import MongoClient
+from pathlib import Path
+from urllib.parse import quote_plus
 from bson import ObjectId
 from gpu_utils import get_gpus
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+from passlib.hash import sha256_crypt
+from pymongo import MongoClient
 from machine import Machine, _smi_command
-from utils import get_abs_path
 
 app = Flask(__name__)
 
@@ -38,8 +38,7 @@ def login():
         username = json["username"]
         password = json["password"]
 
-        with open(get_abs_path(__file__, "passwords"), "rb") as f:
-            passwords = pickle.load(f)
+        passwords = pickle.loads((Path(__file__).parent / "passwords").read_bytes())
 
         if username in passwords and sha256_crypt.verify(password, passwords[username]):
             session["username"] = username
@@ -86,7 +85,7 @@ def add_machine():
 
             # add to current machines / connections
             machine = Machine(
-                app=app, jobs_db=jobs_db, ssh_password=ssh_password, **json
+                app=app, jobs_db=gpu_runner_db.jobs_db, ssh_password=ssh_password, **json
             )
             machine.start()
             machines.update({json["_id"]: machine})
@@ -144,17 +143,13 @@ def data_machines():
     return jsonify([machine.dashboard_data() for machine in machines.values()])
 
 
-def first_time_setup(key_fname, passwords_fname):
-    if not os.path.isfile(key_fname):
-        from os import urandom, chmod
+def first_time_setup(key_path: Path, passwords_path: Path) -> None:
+    if not key_path.is_file():
+        from os import urandom
+        key_path.write_bytes(urandom(50))
+        key_path.chmod(0o600)
 
-        with open(key_fname, "wb") as f:
-            f.write(urandom(50))
-        chmod(key_fname, 0o600)
-
-    if not os.path.isfile(passwords_fname):
-        from os import urandom, chmod
-
+    if not passwords_path.is_file():
         username = input("Create a username: ")
         while True:
             password = getpass("Create a password: ")
@@ -164,11 +159,8 @@ def first_time_setup(key_fname, passwords_fname):
             else:
                 print("Passwords didn't match! Try again.")
 
-        with open(passwords_fname, "wb") as f:
-            pickle.dump({username: sha256_crypt.encrypt(password)}, f)
-            del password
-            del password_confirmation
-        chmod(passwords_fname, 0o600)
+        passwords_path.write_bytes(pickle.dumps({username: sha256_crypt.encrypt(password)}))
+        passwords_path.chmod(0o600)
 
 
 if __name__ == "__main__":
@@ -193,18 +185,17 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--log_level", help="[default = ERROR]", default="ERROR")
 
     args = parser.parse_args()
-    app.logger.setLevel(args.log_level.upper())
+    import logging
+    app.logger.setLevel(logging.INFO)
+    # app.logger.setLevel(args.log_level.upper())
     app.config.update({"DEBUG": args.debug, "TEMPLATES_AUTO_RELOAD": True})
 
-    key_fname = get_abs_path(__file__, "flask_key")
-    passwords_fname = get_abs_path(__file__, "passwords")
+    passwords_path = Path(__file__).parent / "passwords"
+    key_path = Path(__file__).parent / "flask_key"
 
-    first_time_setup(key_fname, passwords_fname)
-
+    first_time_setup(key_path, passwords_path)
     ssh_password = getpass("Enter your SSH password: ")
-
-    with open(key_fname, "rb") as f:
-        app.secret_key = f.read()
+    app.secret_key = key_path.read_bytes()
 
     user = "web_runner"
     db_password = getpass("MongoDB web_runner password: ")
@@ -214,17 +205,20 @@ if __name__ == "__main__":
     del db_password
 
     gpu_runner_db = mongo_client.gpu_runner
-    jobs_db = gpu_runner_db.jobs
+
+    # make sure we can actually connect now so we don't get errors later
+    gpu_runner_db.list_collections()
+    print("Connected to gpu_runner database.")
 
     machines = {}
     for machine in gpu_runner_db.machines.find():
         try:
             machines[machine["_id"]] = Machine(
-                app=app, jobs_db=jobs_db, ssh_password=ssh_password, **machine
+                app=app, jobs_db=gpu_runner_db.jobs, ssh_password=ssh_password, **machine
             )
-            app.logger.info(f"Established connection to {machine['_id']}")
+            print(f"Established connection to {machine['_id']}")
         except:
-            app.logger.error(f"Error establishing connection to {machine['_id']}")
+            print(f"Error establishing connection to {machine['_id']}")
 
     for machine in machines.values():
         machine.start()
