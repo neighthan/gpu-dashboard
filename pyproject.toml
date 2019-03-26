@@ -1,0 +1,22 @@
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
+
+[tool.poetry]
+name = "gpu-dashboard"
+description = "Simple dashboard for starting jobs on different machines with GPUs."
+version = "0.1.0"
+authors = ["Nathan Hunt <neighthan.hunt@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/neighthan/gpu-dashboard"
+
+[tool.poetry.dependencies]
+python = "^3.6"
+paramiko = "^2.4"
+flask = "^1.0"
+passlib = "^1.7"
+pymongo = "^3.7"
+gpu-utils = "^0.2.6"
+
+[tool.poetry.dev-dependencies]
