@@ -176,8 +176,8 @@ if __name__ == "__main__":
         "-mp",
         "--mongo_port",
         type=int,
-        default=27010,
-        help="Port where MongoDB server is running.",
+        default=27017,
+        help="Port where MongoDB server is running [default = 27017].",
     )
     parser.add_argument(
         "-d", "--debug", help="Flag: whether to turn on debug mode", action="store_true"
