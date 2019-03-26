@@ -102,9 +102,9 @@ class Machine:
                 gpu_info = get_gpus_from_info_string(self.execute(_smi_command))
                 for gpu in gpu_info:
                     try:
-                        gpus[gpu.num].append(gpu)
+                        gpus[gpu.idx].append(gpu)
                     except KeyError:
-                        gpus[gpu.num] = [gpu]
+                        gpus[gpu.idx] = [gpu]
 
             # TODO - remove processes that have shown up on the GPU
             # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
@@ -147,7 +147,7 @@ class Machine:
                     self.app.logger.info(f"No free GPUs to start jobs on {self.address}!")
                 break  # can't place anything on this machine
 
-            job_cmd = job["cmd"].format(best_gpu.num)
+            job_cmd = job["cmd"].format(best_gpu.idx)
 
             if self.app:
                 self.app.logger.info(f"Starting job: {job_cmd} ({self._id})")
@@ -160,7 +160,7 @@ class Machine:
             new_processes.append(
                 _Process(
                     job_cmd,
-                    best_gpu.num,
+                    best_gpu.idx,
                     mem_needed=job["mem"],
                     util_needed=job["util"],
                     timestamp=time(),
