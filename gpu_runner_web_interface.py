@@ -6,8 +6,8 @@ from getpass import getpass
 from pathlib import Path
 from urllib.parse import quote_plus
 from bson import ObjectId
-from gpu_utils import get_gpus
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+from gpu_utils.utils import get_gpus_from_info_string
 from passlib.hash import sha256_crypt
 from pymongo import MongoClient
 from machine import Machine, _smi_command
@@ -116,8 +116,8 @@ def data_gpus():
     try:
         gpus = {
             machine._id: [
-                gpu._asdict()
-                for gpu in get_gpus(info_string=machine.execute(_smi_command))
+                vars(gpu)
+                for gpu in get_gpus_from_info_string(machine.execute(_smi_command))
             ]
             for machine in machines.values()
         }

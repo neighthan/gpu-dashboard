@@ -1,9 +1,10 @@
+import traceback
 from time import time, sleep
 from typing import Dict, Any, Sequence
 from collections import namedtuple
 from threading import Thread, Lock
 from ssh import SSHConnection
-from gpu_utils import get_gpus, GPU
+from gpu_utils.utils import get_gpus_from_info_string, _GPU
 
 
 _Process = namedtuple(
@@ -55,13 +56,21 @@ class Machine:
         :returns: decoded stdout
         """
 
-        with self._client_lock:
-            return self._client.execute(command, codec)
+        try:
+            with self._client_lock:
+                return self._client.execute(command, codec)
+        except:
+            if self.app:
+                self.app.logger.info(traceback.format_exc())
+            raise
 
     def start(self, sleep_time: int = 30):
         def handle_machine(machine: Machine, sleep_time: int):
             while True:
                 if machine.gpu_runner_on:
+                    if self.app:
+                        self.app.logger.info(f"Checking for jobs on {self.address}.")
+
                     machine.start_jobs()
                 sleep(sleep_time)
 
@@ -87,45 +96,40 @@ class Machine:
 
             # check if there's a gpu you can run this job on (enough memory and util free)
             gpus = {}
-            processes = self.new_processes
+            new_processes = self.new_processes
 
             for _ in range(n_passes):
-                for gpu in get_gpus(
-                    self.skip_gpus, info_string=self.execute(_smi_command)
-                ):
+                gpu_info = get_gpus_from_info_string(self.execute(_smi_command))
+                for gpu in gpu_info:
                     try:
                         gpus[gpu.num].append(gpu)
                     except KeyError:
                         gpus[gpu.num] = [gpu]
 
-            # remove processes that have shown up on the GPU
+            # TODO - remove processes that have shown up on the GPU
             # if a process doesn't show up on the GPU after enough time, assume it had an error and crashed; remove
-            info_string = self.execute("nvidia-smi")
             now = time()
-            processes = [
+            new_processes = [
                 process
-                for process in processes
-                if process.command not in info_string
-                and now - process.timestamp < keep_time
+                for process in new_processes
+                if now - process.timestamp < keep_time
             ]
 
             # subtract mem and util used by new processes from that which is shown to be free
             mem_newly_used = {gpu_num: 0 for gpu_num in gpus}
             util_newly_used = {gpu_num: 0 for gpu_num in gpus}
-            for process in processes:
+            for process in new_processes:
                 mem_newly_used[process.gpu_num] += process.mem_needed
                 util_newly_used[process.gpu_num] += process.util_needed
 
-            # set mem_free to max from each pass, util_free to mean
+            # set mem_used to max from each pass, util_used to mean
             gpus = [
-                GPU(
-                    num=num,
-                    mem_free=max([gpu.mem_free for gpu in gpu_list])
-                    - mem_newly_used[num],
-                    util_free=sum([gpu.util_free for gpu in gpu_list]) / len(gpu_list)
+                _GPU(
+                    idx=num,
+                    mem_used=max([gpu.mem_used for gpu in gpu_list]) + mem_newly_used[num],
+                    mem_total=gpu_list[0].mem_total,
+                    util_used=sum([gpu.util_used for gpu in gpu_list]) / n_passes
                     - util_newly_used[num],
-                    mem_used=None,  # don't need mem/util used now
-                    util_used=None,
                 )
                 for (num, gpu_list) in gpus.items()
             ]
@@ -139,6 +143,8 @@ class Machine:
             try:
                 best_gpu = max(gpus, key=lambda gpu: gpu.util_free)
             except ValueError:  # max gets no gpus because none have enough mem_free and util_free
+                if self.app:
+                    self.app.logger.info(f"No free GPUs to start jobs on {self.address}!")
                 break  # can't place anything on this machine
 
             job_cmd = job["cmd"].format(best_gpu.num)
@@ -151,7 +157,7 @@ class Machine:
             # isn't printed when the job finishes
             output = self.execute(f"({job_cmd} >> ~/.gpu_log 2>&1 &)")
 
-            processes.append(
+            new_processes.append(
                 _Process(
                     job_cmd,
                     best_gpu.num,
@@ -160,6 +166,7 @@ class Machine:
                     timestamp=time(),
                 )
             )
+            self.new_processes = new_processes
 
             # this job is running, so remove it from the list
             self.jobs_db.remove({"_id": job["_id"]})

@@ -30,7 +30,7 @@
           <v-card>
             <v-card-text>
                 <ul v-for="gpu in gpuUsage">
-                  <li>GPU [[ gpu.num ]]: [[ gpu.mem_used ]] / [[ gpu.mem_free + gpu.mem_used ]] MiB [[ gpu.util_used ]]%</li>
+                  <li>GPU [[ gpu.idx ]]: [[ gpu.mem_used ]] / [[ gpu.mem_total ]] MiB [[ gpu.util_used ]]%</li>
                 </ul>
             </v-card-text>
           </v-card>
@@ -161,8 +161,8 @@
                     let utilData = []
                     for (let idx in gpuUsage) {
                         let gpu = gpuUsage[idx]
-                        memData.push([gpu.num, Math.round(100 * gpu.mem_used / (gpu.mem_free + gpu.mem_used))])
-                        utilData.push([gpu.num, gpu.util_used])
+                        memData.push([gpu.idx, Math.round(100 * gpu.mem_used / (gpu.mem_total))])
+                        utilData.push([gpu.idx, gpu.util_used])
                     }
                     chartData[machine] = [{name: 'Util', data: utilData}, {name: 'Memory', data: memData}]
                 }
