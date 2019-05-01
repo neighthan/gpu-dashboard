@@ -57,14 +57,14 @@ sudo apt-get install -y mongodb-org # latest version
 ```bash
 # update this when a new version is available or for different systems
 # https://www.mongodb.com/download-center/community
-mongo_fname=mongodb-linux-x86_64-ubuntu1604-4.0.3
+mongo_fname=mongodb-linux-x86_64-ubuntu1804-4.0.9
 
 # update this to whatever you like
 install_dir=$HOME/mongo
 
 mkdir -p $install_dir
 
-wget https://fastdl.mongodb.org/linux/$mongo_fname.tgz
+wget http://downloads.mongodb.org/linux/$mongo_fname.tgz
 tar -xzf $mongo_fname.tgz
 mv $mongo_fname/* $install_dir
 rm -r $mongo_fname
@@ -83,7 +83,7 @@ Make sure to also set up whatever directories you'll use to store you databases.
 Set up authentication for your database as shown [here][auth]. You'll probably want to make both a `userAdminAnyDatabase` user as well as the required user `web_runner` with `readWrite` access to the `gpu_runner` database. Here's an example of creating the required users:
 
 ```bash
-mongod --dbpath mongodb # start mongo server
+mongod --dbpath data/mongodb # start mongo server
 ```
 
 (in a separate terminal)
